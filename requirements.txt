@@ -26,3 +26,4 @@ openpyxl
 streamlit
 streamlit-autorefresh
 google-search-results
+tavily

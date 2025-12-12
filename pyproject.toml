@@ -47,5 +47,6 @@ dev = [
     "tavily",
     "openpyxl",
     "uvicorn",
-    "fastapi"
+    "fastapi",
+    "tavily"
 ]
