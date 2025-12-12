@@ -1,0 +1,10 @@
+.env
+__pycache__/
+logs/running_log.log
+input/
+.venv/
+.streamlit/
+pyproject.toml
+uv.lock
+.git
+.gitignore

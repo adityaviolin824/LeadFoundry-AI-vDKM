@@ -1,0 +1,33 @@
+{
+  "project": "drone_inspection_vendors",
+  "entity_type": "company",
+
+  "targets": {
+    "entity_subtype": "drone operator",
+    "locations": ["singapore", "hong kong"],
+    "industries": ["inspection", "aerial services"],
+    "company_sizes": ["11-50", "51-200"],
+    "keywords": ["drone inspection", "aerial inspection", "facade inspection"]
+  },
+
+  "personas": {
+    "roles": ["founder", "operations head", "business development"],
+    "seniority": ["director", "head"]
+  },
+
+  "constraints": {
+    "lead_limit": 200,
+    "required_fields": ["email"],
+    "exclusions": ["retail", "manufacturing"]
+  },
+
+  "verification": {
+    "level": "basic",
+    "require_official_domain": true
+  },
+
+  "seeds": {
+    "seed_websites": [],
+    "seed_company_names": []
+  }
+}

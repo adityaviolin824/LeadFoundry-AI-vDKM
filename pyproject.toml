@@ -1,0 +1,51 @@
+[project]
+name = "agentic-env"
+version = "0.1.0"
+description = "Agentic AI experiments and pipelines"
+readme = "README.md"
+requires-python = ">=3.12, <3.14"
+
+dependencies = [
+    # Core web backend
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "pydantic>=2.8.0",
+    "python-dotenv>=1.0.1",
+    "requests>=2.32.3",
+
+    # Streamlit frontend
+    "streamlit>=1.40.0",
+
+    # Agentic / LLM frameworks
+    "openai-agents>=0.0.15",
+    "openai>=1.68.2",
+
+    # MCP
+    "mcp-server-fetch>=2025.1.17",
+    "mcp[cli]>=1.5.0",
+
+    # Tools / utilities actually used in this project
+    "bs4>=0.0.2",
+    "duckduckgo-search>=7.0.0",
+    "httpx>=0.28.1",
+    "lxml>=5.3.1",
+    "psutil>=7.0.0",
+
+    "python-box>=7.2.0",
+    "ensure>=1.0.0",
+
+]
+
+[dependency-groups]
+dev = [
+    # Development / Notebook support and experiments
+    "ipykernel>=6.29.5",
+    "ipywidgets>=8.1.5",
+    "plotly>=6.0.1",
+    "setuptools>=78.1.0",
+    "google-search-results",
+    "tavily",
+    "openpyxl",
+    "uvicorn",
+    "fastapi"
+]

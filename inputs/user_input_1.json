@@ -1,0 +1,33 @@
+{
+  "project": "college_workshops",
+  "entity_type": "college",
+
+  "targets": {
+    "entity_subtype": "technical college",
+    "locations": ["odisha", "west bengal"],
+    "industries": [],
+    "company_sizes": [],
+    "keywords": ["engineering workshop", "technical training"]
+  },
+
+  "personas": {
+    "roles": ["principal", "director"],
+    "seniority": ["senior"]
+  },
+
+  "constraints": {
+    "lead_limit": 100,
+    "required_fields": ["email", "phone"],
+    "exclusions": []
+  },
+
+  "verification": {
+    "level": "strict",
+    "require_official_domain": true
+  },
+
+  "seeds": {
+    "seed_websites": [],
+    "seed_company_names": []
+  }
+}
