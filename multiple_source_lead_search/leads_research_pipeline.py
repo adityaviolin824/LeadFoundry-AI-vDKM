@@ -180,22 +180,41 @@ async def run_all_agents(query: str, json_path: str) -> None:
 
     all_leads: List[Dict[str, Any]] = []
 
+    # -------------------------------------------------
+    # Create tasks (DO NOT await yet)
+    # -------------------------------------------------
+    tasks: List[tuple[str, asyncio.Task]] = []
+
     for name, factory in agent_creators:
         trace_name = f"run_{name}_agent"
-        try:
-            agent = factory()
-            structured = await common_research_agent_runner(agent, query, trace_name)
-            all_leads.append(structured)
+        agent = factory()
+
+        task = asyncio.create_task(
+            common_research_agent_runner(agent, query, trace_name)
+        )
+        tasks.append((name, task))
+
+    # -------------------------------------------------
+    # Await all agents in parallel
+    # -------------------------------------------------
+    results = await asyncio.gather(
+        *(task for _, task in tasks),
+        return_exceptions=True,
+    )
+
+    # -------------------------------------------------
+    # Collect results safely
+    # -------------------------------------------------
+    for (name, _), result in zip(tasks, results):
+        if isinstance(result, Exception):
+            logger.error("Agent %s failed: %s", name, result)
+            all_leads.append({"agent": name, "error": str(result)})
+        else:
+            all_leads.append(result)
             logger.info(
                 "Agent %s completed: collected %d leads",
                 name,
-                len(structured.get("leads", [])) if isinstance(structured, dict) else 0,
+                len(result.get("leads", [])) if isinstance(result, dict) else 0,
             )
-        except CustomException as ce:
-            logger.error("Agent %s failed with CustomException: %s", name, ce)
-            all_leads.append({"agent": name, "error": str(ce)})
-        except Exception as e:
-            logger.exception("Agent %s unexpected error: %s", name, e)
-            all_leads.append({"agent": name, "error": str(e)})
 
     consolidate_and_save(all_leads, json_path)
