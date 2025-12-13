@@ -117,7 +117,6 @@ class Lead(BaseModel):
     phone_number: str
     location: str
     description: str
-    source_urls: List[str] = Field(default_factory=list)
 
     @field_validator("website")
     @classmethod
@@ -134,7 +133,7 @@ class LeadList(BaseModel):
 # ---------------------------------------------------------------------
 try:
     DEFAULT_MCP_SERVERS = researcher_mcp_stdio_servers(
-        client_session_timeout_seconds=300
+        client_session_timeout_seconds=120
     )
 except Exception:
     logger.exception("Failed to initialize MCP servers")
@@ -156,7 +155,7 @@ if not OPENAI_API_KEY:
 try:
     openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
     model = OpenAIChatCompletionsModel(
-        model="gpt-4o-mini", # check 4o performance and keep if no difference
+        model="gpt-4.1-mini",
         openai_client=openai_client,
     )
 except Exception:
@@ -213,7 +212,7 @@ def create_serpapi_search_agent() -> Agent:
 def create_structuring_agent() -> Agent:
     return Agent(
         name="lead_structuring_agent",
-        model="gpt-4o-mini",
+        model="gpt-4.1-mini",
         mcp_servers=[],     # no MCP for normalizer
         tools=[],           # no external tools
         instructions="""
@@ -238,7 +237,6 @@ Schema (returned as LeadList):
       "phone_number": "...",
       "location": "...",
       "description": "...",
-      "source_urls": [...]
     }
   ]
 }

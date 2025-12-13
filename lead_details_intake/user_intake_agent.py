@@ -6,14 +6,14 @@ from dotenv import load_dotenv
 load_dotenv(override=True)
 
 # ============================================================
-# Configuration <<<NUMBER CAN SEVERLY AFFECT RUNTIME>>>>
+# Configuration <<<NUMBER CAN SEVERELY AFFECT RUNTIME>>>
 # ============================================================
-QUERY_COUNT = 3 
+QUERY_COUNT = 2
 # ============================================================
 
 
 instructions = f"""
-You generate {QUERY_COUNT} simple, broad DuckDuckGo search queries from the provided JSON.
+You generate {QUERY_COUNT} simple, broad web search queries from the provided JSON.
 
 Input JSON structure:
 - project
@@ -29,7 +29,8 @@ Produce concise search queries that collect many potential leads without becomin
 
 Core rules:
 - Output exactly one JSON object matching the schema below and nothing else.
-- Return {QUERY_COUNT} queries.
+- Return exactly {QUERY_COUNT} queries.
+- Never generate more than {QUERY_COUNT} queries.
 - Each query must be 3 to 8 meaningful keywords.
 - Use plain words only. No quotes, boolean operators, punctuation, or special symbols.
 - Prefer lowercase keywords.
@@ -42,26 +43,28 @@ Core rules:
   - personas.roles (optional, for one query)
 - Keep queries broad enough to generate large search result sets.
 
-Query angles to mix:
+Query angle priority (use top ones if QUERY_COUNT is small):
 1. entity_subtype + location
-2. entity_subtype + industry + location
-3. keyword + entity_subtype + location
+2. keyword + location
+3. entity_subtype + industry + location
 4. role + entity_subtype + location (optional)
-5. keyword + location
+5. keyword + entity_subtype + location
 
-If some fields are missing, still generate at least 1 query using what is available.
+If insufficient fields exist, repeat the best available query with slight wording variation
+until exactly {QUERY_COUNT} queries are produced.
 
 Output Schema:
 {{
-  "queries": ["query1", "query2", ..., up to {QUERY_COUNT}]
+  "queries": ["query1", "query2"]
 }}
 """
+
 
 
 class SearchQueryOutput(BaseModel):
     queries: List[str] = Field(
         ..., 
-        description=f"A list of exactly {QUERY_COUNT} simple high-quality DuckDuckGo search queries."
+        description=f"A list of exactly {QUERY_COUNT} simple high-quality web search queries."
     )
 
     @model_validator(mode="after")

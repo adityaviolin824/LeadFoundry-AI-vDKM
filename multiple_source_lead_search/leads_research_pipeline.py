@@ -22,7 +22,7 @@ from multiple_source_lead_search.agent_models_and_structure import (
 logger = logging.getLogger(__name__)
 
 
-AGENT_TIMEOUT_SECONDS = 180   # 3 minutes
+AGENT_TIMEOUT_SECONDS = 240   # 3 minutes
 
 async def run_with_timeout(agent, input_json):
     """

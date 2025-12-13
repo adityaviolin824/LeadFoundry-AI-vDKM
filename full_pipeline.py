@@ -521,53 +521,63 @@ def _make_run_folder(base_run_dir: str, prefix: str = "run_") -> Path:
 
 
 def run_full_pipeline(config: Optional[PipelineConfig] = None, user_input_dict: Optional[dict] = None):
-    # avoid mutating caller's config
     config = deepcopy(config) if config is not None else PipelineConfig()
     metrics = PipelineMetrics()
     start = time.time()
 
-    logger.info("=== FULL PIPELINE START ===")
+    # ------------------------------------------------------------------
+    # PIPELINE START
+    # ------------------------------------------------------------------
+    logger.info("=" * 96)
+    logger.info("[PIPELINE] PIPELINE START REQUESTED")
+    logger.info("=" * 96)
 
     try:
         if config.cleanup_on_start:
-            cleanup_old_runs(config.base_run_dir, run_prefix=config.run_name_prefix, max_age_hours=config.cleanup_age_hours)
+            cleanup_old_runs(
+                config.base_run_dir,
+                run_prefix=config.run_name_prefix,
+                max_age_hours=config.cleanup_age_hours
+            )
     except Exception:
-        logger.exception("Run-folder cleanup failed (continuing)")
+        logger.exception("[PIPELINE] Run-folder cleanup failed (continuing)")
 
     run_dir = _make_run_folder(config.base_run_dir, prefix=config.run_name_prefix)
+    run_id = run_dir.name
+
+    logger.info("=" * 96)
+    logger.info("[PIPELINE][RUN=%s] PIPELINE STARTED", run_id)
+    logger.info("[PIPELINE][RUN=%s] Run directory: %s", run_id, run_dir)
+    logger.info("[PIPELINE][RUN=%s] Start time (UTC): %s",
+                run_id, datetime.now(timezone.utc).isoformat())
+    logger.info("=" * 96)
 
     # -----------------------------
-    # CREATE .pipeline.lock (new)
+    # CREATE .pipeline.lock
     # -----------------------------
     lock_path = run_dir / ".pipeline.lock"
     try:
         lock_path.write_text(str(os.getpid()))
     except Exception:
-        logger.exception("Could not create pipeline lock file")
-    # -----------------------------
+        logger.exception("[PIPELINE][RUN=%s] Failed to create pipeline lock file", run_id)
 
-    # 1. Capture the SOURCE path requested by the config
     source_input_path = Path(config.user_input_path)
-
-    # 2. Define the DESTINATION path inside the run folder
     run_input_path = run_dir / "inputs" / "user_input.json"
     run_input_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # 3. Handle the transfer (Priority: Dict > ConfigFile > Failure)
     if user_input_dict is not None:
         write_json_atomic(user_input_dict, run_input_path, make_backup=False, sync=False)
-        logger.info("Input: Used provided dictionary argument.")
+        logger.info("[PIPELINE][RUN=%s] Input source: provided dictionary", run_id)
     elif source_input_path.exists():
         try:
             shutil.copy2(source_input_path, run_input_path)
-            logger.info("Input: Copied from config source: %s", source_input_path)
+            logger.info("[PIPELINE][RUN=%s] Input source: copied from %s", run_id, source_input_path)
         except Exception:
-            logger.exception("Failed to copy input file from %s", source_input_path)
-            raise CustomException(f"Failed to copy input file from {source_input_path}")
+            logger.exception("[PIPELINE][RUN=%s] Failed to copy input file", run_id)
+            raise
     else:
-        raise CustomException(f"No input provided: user_input_dict is None and config path {source_input_path} does not exist")
+        raise CustomException("No valid input source found")
 
-    # 4. Update config to point to the new run-isolated file and outputs
     config.user_input_path = str(run_input_path)
     config.suggested_queries_path = str(run_dir / "outputs" / "suggested_queries.json")
     config.consolidated_path = str(run_dir / "outputs" / "lead_list_consolidated.json")
@@ -576,64 +586,67 @@ def run_full_pipeline(config: Optional[PipelineConfig] = None, user_input_dict: 
     config.excel_out_path = str(run_dir / "outputs" / "final_leads_list.xlsx")
     config.metrics_path = str(run_dir / "outputs" / "pipeline_metrics.json")
 
-    logger.info("Run-localized paths set under %s", run_dir)
-    _maybe_progress(config, "run_started", {
-        "run_dir": str(run_dir),
-        "message": f"Pipeline started. Created run folder: {run_dir.name}"
-    })
+    logger.info("[PIPELINE][RUN=%s] Run-localized paths configured", run_id)
 
     try:
+        logger.info("[PIPELINE][RUN=%s][STAGE=INTAKE] STARTED", run_id)
         run_user_intake_stage(config, metrics)
+        logger.info("[PIPELINE][RUN=%s][STAGE=INTAKE] COMPLETED | queries=%d",
+                    run_id, metrics.total_queries)
+
+        logger.info("[PIPELINE][RUN=%s][STAGE=RESEARCH] STARTED", run_id)
         run_research_from_queries(config, metrics, run_dir=run_dir)
+        logger.info("[PIPELINE][RUN=%s][STAGE=RESEARCH] COMPLETED | leads=%d",
+                    run_id, metrics.total_leads_found)
+
+        logger.info("[PIPELINE][RUN=%s][STAGE=DEDUPLICATION] STARTED", run_id)
         run_deduplication(config, metrics)
+        logger.info("[PIPELINE][RUN=%s][STAGE=DEDUPLICATION] COMPLETED | remaining=%d",
+                    run_id, metrics.leads_after_dedup)
+
+        logger.info("[PIPELINE][RUN=%s][STAGE=SORTING] STARTED", run_id)
         run_sorting(config, metrics)
+        logger.info("[PIPELINE][RUN=%s][STAGE=SORTING] COMPLETED", run_id)
+
+        logger.info("[PIPELINE][RUN=%s][STAGE=EXPORT] STARTED", run_id)
         run_export_to_excel(config, metrics)
+        logger.info("[PIPELINE][RUN=%s][STAGE=EXPORT] COMPLETED | excel_written=true", run_id)
 
         metrics.execution_time_seconds = time.time() - start
         metrics.log_summary()
 
-        Path(config.metrics_path).parent.mkdir(parents=True, exist_ok=True)
         write_json_atomic(metrics.to_dict(), config.metrics_path, make_backup=False)
-        logger.info("Metrics saved: %s", config.metrics_path)
-        _maybe_progress(config, "run_complete", {
-            "metrics_path": config.metrics_path,
-            "excel_path": config.excel_out_path,
-            "message": "Pipeline finished successfully"
-        })
-        logger.info("=== PIPELINE COMPLETE ===")
+
+        logger.info("=" * 96)
+        logger.info("[PIPELINE][RUN=%s] PIPELINE COMPLETED SUCCESSFULLY", run_id)
+        logger.info("[PIPELINE][RUN=%s] Execution time: %.2fs",
+                    run_id, metrics.execution_time_seconds)
+        logger.info("[PIPELINE][RUN=%s] Metrics: %s", run_id, config.metrics_path)
+        logger.info("[PIPELINE][RUN=%s] Excel output: %s", run_id, config.excel_out_path)
+        logger.info("=" * 96)
 
     except Exception as e:
         metrics.execution_time_seconds = time.time() - start
-        logger.exception("PIPELINE FAILED after %.2fs: %s", metrics.execution_time_seconds, e)
+
+        logger.error("!" * 96)
+        logger.error("[PIPELINE][RUN=%s] PIPELINE FAILED", run_id)
+        logger.error("[PIPELINE][RUN=%s] Error: %s", run_id, e)
+        logger.error("[PIPELINE][RUN=%s] Execution time: %.2fs",
+                     run_id, metrics.execution_time_seconds)
+        logger.error("!" * 96)
+        logger.exception("[PIPELINE][RUN=%s] STACK TRACE", run_id)
+
         try:
-            Path(config.metrics_path).parent.mkdir(parents=True, exist_ok=True)
             write_json_atomic(metrics.to_dict(), config.metrics_path, make_backup=False)
-            logger.info("Failure metrics saved: %s", config.metrics_path)
-            _maybe_progress(config, "run_failed", {
-                "metrics_path": config.metrics_path,
-                "error": str(e),
-                "message": "Pipeline failed unexpectedly"
-            })
         except Exception:
-            logger.exception("Failed to write failure metrics to %s", config.metrics_path)
+            logger.exception("[PIPELINE][RUN=%s] Failed to write failure metrics", run_id)
+
         raise
 
     finally:
-        # -----------------------------
-        # CLEAN UP .pipeline.lock (new)
-        # -----------------------------
         try:
             if lock_path.exists():
                 lock_path.unlink()
         except Exception:
-            logger.exception("Failed to remove pipeline lock file")
-        # -----------------------------
+            logger.exception("[PIPELINE][RUN=%s] Failed to remove pipeline lock", run_id)
 
-
-
-if __name__ == "__main__":
-    try:
-        run_full_pipeline()
-    except Exception as exc:
-        logger.exception("Fatal error: %s", exc)
-        exit(1)
