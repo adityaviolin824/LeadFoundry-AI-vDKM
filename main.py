@@ -1,10 +1,11 @@
-# app_fastapi.py (async-first version) - with high-priority fixes applied
+# app_fastapi.py (async-first version) - with email logic fixes
 import uuid
 import logging
 import json
 import os
 import asyncio
 import inspect
+import re
 from pathlib import Path
 from typing import Dict, Any, Optional, Callable
 from fastapi import FastAPI, HTTPException
@@ -14,6 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import threading
 from contextlib import asynccontextmanager
 import shutil
+from utils.send_excel_on_email import send_lead_notification
 
 logger = logging.getLogger("leadfoundry_api")
 logging.basicConfig(level=logging.INFO)
@@ -21,7 +23,7 @@ logging.basicConfig(level=logging.INFO)
 # Async primitives for concurrency control and safe registry access
 RUNS: Dict[str, Dict[str, Any]] = {}
 _RUNS_LOCK = asyncio.Lock()
-MAX_CONCURRENT_RUNS = 2
+MAX_CONCURRENT_RUNS = 5
 _PIPELINE_SEMAPHORE = asyncio.Semaphore(MAX_CONCURRENT_RUNS)
 
 
@@ -58,7 +60,7 @@ app.add_middleware(
 from full_pipeline import (  # noqa: E402
     PipelineConfig,
     PipelineMetrics,
-    _make_run_folder,  # if not exported, reimplement naming logic here
+    _make_run_folder,
     run_user_intake_stage,
     run_research_from_queries,
     run_deduplication,
@@ -89,8 +91,13 @@ def _cleanup_unlocked_run_folders(base_dir: str = "runs"):
             logger.exception("Failed to delete folder %s", folder)
 
 
-
 # Utilities
+def is_valid_email(email: str) -> bool:
+    """Validate email format"""
+    pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+    return bool(re.match(pattern, email))
+
+
 async def _safe_write_json_atomic(data: Any, path: Path, **kw):
     """Run write_json_atomic in a thread to avoid blocking event loop."""
     await asyncio.to_thread(write_json_atomic, data, str(path), **kw)
@@ -122,7 +129,6 @@ def _maybe_awaitable_call(fn: Callable, /, *args, **kwargs):
     """
     if _is_coro(fn):
         return fn(*args, **kwargs)
-    # wrap sync function to run in thread
     return asyncio.to_thread(fn, *args, **kwargs)
 
 
@@ -137,12 +143,10 @@ def _write_progress_sync(run_dir: str, stage: str, info: dict):
 
 
 async def _write_progress(run_dir: str, stage: str, info: dict):
-    # Delegate to thread-safe writer
     await asyncio.to_thread(_write_progress_sync, run_dir, stage, info)
 
 
-# Create run metadata (sync parts are small and safe)
-# NOTE: this function no longer writes the user_input to disk. create_run will write it via asyncio.to_thread
+# Create run metadata
 def _create_run_records(user_input_path: str, base_run_dir: Optional[str] = None) -> Dict[str, Any]:
     cfg = PipelineConfig()
     if base_run_dir:
@@ -150,7 +154,6 @@ def _create_run_records(user_input_path: str, base_run_dir: Optional[str] = None
 
     run_dir = _make_run_folder(cfg.base_run_dir, prefix=cfg.run_name_prefix)
 
-    # create simple lock sentinel
     lock_path = Path(run_dir) / ".pipeline.lock"
     try:
         lock_path.write_text(str(os.getpid()))
@@ -159,9 +162,8 @@ def _create_run_records(user_input_path: str, base_run_dir: Optional[str] = None
 
     inputs_dir = Path(run_dir) / "inputs"
     inputs_dir.mkdir(parents=True, exist_ok=True)
-    run_input_path = inputs_dir / user_input_path  # filename provided by caller
+    run_input_path = inputs_dir / user_input_path
 
-    # localize config paths
     cfg.user_input_path = str(run_input_path)
     cfg.suggested_queries_path = str(Path(run_dir) / "outputs" / "suggested_queries.json")
     cfg.consolidated_path = str(Path(run_dir) / "outputs" / "lead_list_consolidated.json")
@@ -171,106 +173,154 @@ def _create_run_records(user_input_path: str, base_run_dir: Optional[str] = None
     cfg.metrics_path = str(Path(run_dir) / "outputs" / "pipeline_metrics.json")
 
     metrics = PipelineMetrics()
-    # Keep threading.Event for pipeline compatibility
     cancel_event = _create_threading_cancel_event()
 
-    meta = {
+    return {
         "run_id": None,
         "run_dir": str(run_dir),
         "config": cfg,
         "metrics": metrics,
-        "cancel_event": cancel_event,  # for compatibility with pipeline expecting threading.Event
-        "task": None,                  # asyncio.Task for the currently running stage
+        "cancel_event": cancel_event,
+        "task": None,
         "status": "created",
         "error": None,
     }
-    return meta
 
 
-# Async stage runners that call pipeline code safely
+# Async stage runners
 async def _async_run_intake(run_id: str):
     meta = await _safe_get_run(run_id)
     if not meta:
-        logger.error("Run missing in intake runner: %s", run_id)
         return
 
-    cfg: PipelineConfig = meta["config"]
-    metrics: PipelineMetrics = meta["metrics"]
-    # pipeline expects a threading.Event; meta already contains it
+    cfg = meta["config"]
+    metrics = meta["metrics"]
     cfg.cancellation_token = meta["cancel_event"]
 
     await _safe_update_run(run_id, status="intake_running")
     await _write_progress(meta["run_dir"], "intake", {"status": "started"})
+
     try:
         await _maybe_awaitable_call(run_user_intake_stage, cfg, metrics)
         await _safe_update_run(run_id, status="intake_completed")
-        await _write_progress(meta["run_dir"], "intake", {"status": "completed", "total_queries": metrics.total_queries})
-    except asyncio.CancelledError:
-        logger.info("Intake task cancelled for run %s", run_id)
-        await _safe_update_run(run_id, status="cancelled")
-        await _write_progress(meta["run_dir"], "intake", {"status": "cancelled"})
+        await _write_progress(meta["run_dir"], "intake", {"status": "completed"})
     except Exception as e:
-        logger.exception("Intake failed for run %s", run_id)
         await _safe_update_run(run_id, status="intake_failed", error=str(e))
-        await _write_progress(meta["run_dir"], "intake", {"status": "failed", "error": str(e)})
+        logger.exception("Intake failed for run %s", run_id)
 
 
 async def _async_run_research(run_id: str):
     meta = await _safe_get_run(run_id)
     if not meta:
-        logger.error("Run missing in research runner: %s", run_id)
         return
 
-    cfg: PipelineConfig = meta["config"]
-    metrics: PipelineMetrics = meta["metrics"]
+    cfg = meta["config"]
+    metrics = meta["metrics"]
     cfg.cancellation_token = meta["cancel_event"]
 
     await _safe_update_run(run_id, status="research_running")
     await _write_progress(meta["run_dir"], "research", {"status": "started"})
+
+    # Run research stage
     try:
-        # Use the run_dir Path object just like the pipeline expects
         await _maybe_awaitable_call(run_research_from_queries, cfg, metrics, run_dir=Path(meta["run_dir"]))
-        await _safe_update_run(run_id, status="research_completed")
-        await _write_progress(meta["run_dir"], "research", {"status": "completed", "total_leads": metrics.total_leads_found})
-    except asyncio.CancelledError:
-        logger.info("Research task cancelled for run %s", run_id)
-        await _safe_update_run(run_id, status="cancelled")
-        await _write_progress(meta["run_dir"], "research", {"status": "cancelled"})
     except Exception as e:
-        logger.exception("Research failed for run %s", run_id)
         await _safe_update_run(run_id, status="research_failed", error=str(e))
-        await _write_progress(meta["run_dir"], "research", {"status": "failed", "error": str(e)})
+        logger.exception("Research failed for run %s", run_id)
+        return  # Don't proceed to auto-finalization if research failed
+
+    # Research completed successfully
+    email = meta.get("email")
+    
+    if not email:
+        # No email - just complete research and stop
+        await _safe_update_run(run_id, status="research_completed")
+        await _write_progress(meta["run_dir"], "research", {"status": "completed"})
+        logger.info("Research completed for run %s (no email provided)", run_id)
+        return
+    
+    # Email is present - mark research complete then continue to finalization
+    await _safe_update_run(run_id, status="research_completed")
+    await _write_progress(meta["run_dir"], "research", {"status": "completed"})
+    logger.info("Research completed for run %s, starting auto-finalization for email delivery to %s", run_id, email)
+    
+    # Auto-finalize and send email
+    try:
+        # Run finalization
+        async with _PIPELINE_SEMAPHORE:
+            await _async_run_finalize(run_id)
+        
+        # Check finalization status
+        updated_meta = await _safe_get_run(run_id)
+        if not updated_meta:
+            logger.error("Run metadata not found after finalization for run %s", run_id)
+            return
+        
+        if updated_meta.get("status") == "finalize_failed":
+            logger.error("Finalization failed for run %s, skipping email", run_id)
+            await _safe_update_run(run_id, email_sent=False, email_error="Finalization failed")
+            return
+        
+        # Check if Excel file exists
+        excel_path = Path(meta["config"].excel_out_path)
+        if not excel_path.exists():
+            logger.error("Excel file not found at %s for run %s", excel_path, run_id)
+            await _safe_update_run(run_id, email_sent=False, email_error="Excel file not generated")
+            return
+        
+        # Send email
+        try:
+            await asyncio.to_thread(
+                send_lead_notification,
+                email,
+                "Your LeadFoundry AI Results",
+                "<p>Your leads are ready. Please find the Excel attached.</p>",
+                str(excel_path),
+            )
+            logger.info("=" * 70)
+            logger.info("✅ Email sent successfully to %s for run %s", email, run_id)
+            logger.info("=" * 70)
+            await _safe_update_run(run_id, email_sent=True, email_sent_to=email)
+            
+        except Exception as email_error:
+            logger.exception("Failed to send email for run %s to %s", run_id, email)
+            await _safe_update_run(
+                run_id, 
+                email_sent=False, 
+                email_error=f"Email delivery failed: {str(email_error)}"
+            )
+            
+    except Exception as finalize_error:
+        logger.exception("Auto-finalization failed for run %s", run_id)
+        await _safe_update_run(
+            run_id, 
+            email_sent=False, 
+            email_error=f"Finalization error: {str(finalize_error)}"
+        )
 
 
 async def _async_run_finalize(run_id: str):
     meta = await _safe_get_run(run_id)
     if not meta:
-        logger.error("Run missing in finalize runner: %s", run_id)
         return
 
-    cfg: PipelineConfig = meta["config"]
-    metrics: PipelineMetrics = meta["metrics"]
+    cfg = meta["config"]
+    metrics = meta["metrics"]
     cfg.cancellation_token = meta["cancel_event"]
 
     await _safe_update_run(run_id, status="finalize_running")
     await _write_progress(meta["run_dir"], "finalize", {"status": "started"})
+
     try:
-        # run dedupe, sort, export sequentially
         await _maybe_awaitable_call(run_deduplication, cfg, metrics)
         await _maybe_awaitable_call(run_sorting, cfg, metrics)
         await _maybe_awaitable_call(run_export_to_excel, cfg, metrics)
         await _safe_update_run(run_id, status="finalize_completed")
         await _write_progress(meta["run_dir"], "finalize", {"status": "completed"})
-        # persist metrics to disk using thread
-        await _safe_write_json_atomic(metrics.to_dict(), Path(cfg.metrics_path), make_backup=False)
-    except asyncio.CancelledError:
-        logger.info("Finalize task cancelled for run %s", run_id)
-        await _safe_update_run(run_id, status="cancelled")
-        await _write_progress(meta["run_dir"], "finalize", {"status": "cancelled"})
+        logger.info("Finalization completed for run %s", run_id)
     except Exception as e:
-        logger.exception("Finalize failed for run %s", run_id)
         await _safe_update_run(run_id, status="finalize_failed", error=str(e))
-        await _write_progress(meta["run_dir"], "finalize", {"status": "failed", "error": str(e)})
+        logger.exception("Finalization failed for run %s", run_id)
 
 
 # API endpoints (async, non-blocking)
@@ -286,7 +336,15 @@ async def create_and_start_run(payload: Dict):
     meta = _create_run_records(user_input_filename)
     meta["run_id"] = run_id
 
-    # write input
+    # Validate and store email if provided
+    email = payload.get("email")
+    if email:
+        if not is_valid_email(email):
+            raise HTTPException(400, "Invalid email format")
+        meta["email"] = email
+        logger.info("Run %s will send results to email: %s", run_id, email)
+
+    # write input (payload already contains email if provided)
     try:
         await asyncio.to_thread(
             write_json_atomic,
@@ -314,9 +372,18 @@ async def create_and_start_run(payload: Dict):
     task = asyncio.create_task(_wrapped())
     await _safe_update_run(run_id, task=task, status="intake_queued")
 
-    logger.info("Created run %s and queued intake", run_id)
-    return {"run_id": run_id, "status": "intake_queued", "run_dir": meta["run_dir"]}
+    logger.info(
+        "Created run %s and queued intake (email=%s)",
+        run_id,
+        email or "none"
+    )
 
+    return {
+        "run_id": run_id,
+        "status": "intake_queued",
+        "run_dir": meta["run_dir"],
+        "email_delivery": bool(email),
+    }
 
 
 @app.post("/runs/{run_id}/research", status_code=202)
@@ -340,43 +407,6 @@ async def start_research(run_id: str):
     await _safe_update_run(run_id, task=task, status="research_queued")
     return {"run_id": run_id, "status": "research_queued"}
 
-# @app.post("/runs/{run_id}/research", status_code=202)
-# async def start_research_dummy(run_id: str):
-#     """
-#     Dummy research stage for testing UI without running the actual pipeline.
-#     It instantly completes research and produces empty JSON results.
-#     """
-#     meta = await _safe_get_run(run_id)
-#     if not meta:
-#         raise HTTPException(404, "run_id not found")
-
-#     # Mark research as queued
-#     await _safe_update_run(run_id, status="research_queued")
-
-#     async def _wrapped():
-#         async with _PIPELINE_SEMAPHORE:
-#             # Simulate small delay
-#             await asyncio.sleep(15)
-#             # Mark research as completed with empty output
-#             await _safe_update_run(run_id, status="research_completed")
-
-#             # Write empty research output
-#             out_dir = Path(meta["run_dir"]) / "outputs"
-#             out_dir.mkdir(parents=True, exist_ok=True)
-#             empty_json_path = out_dir / "dummy_research_output.json"
-#             await asyncio.to_thread(write_json_atomic, {}, str(empty_json_path), False, False)
-
-#             # Write progress log
-#             await _write_progress(meta["run_dir"], "research", {"status": "completed", "dummy": True})
-
-#     task = asyncio.create_task(_wrapped())
-#     await _safe_update_run(run_id, task=task)
-
-#     return {"run_id": run_id, "status": "research_queued", "dummy": True}
-
-
-
-
 
 @app.get("/runs/{run_id}/status")
 async def get_status(run_id: str):
@@ -393,14 +423,16 @@ async def get_status(run_id: str):
         "has_task": bool(t),
         "task_done": t.done() if t else None,
         "task_cancelled": t.cancelled() if t else None,
+        # email info
+        "email_delivery_enabled": bool(meta.get("email")),
+        "email_sent": meta.get("email_sent"),
+        "email_sent_to": meta.get("email_sent_to"),
+        "email_error": meta.get("email_error"),
     }
     outputs = Path(meta["run_dir"]) / "outputs"
     if outputs.exists():
         info["progress_files"] = [str(p.name) for p in outputs.glob("progress_*.json")]
     return JSONResponse(info)
-
-
-
 
 
 @app.post("/runs/{run_id}/finalize_full", status_code=202)

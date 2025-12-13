@@ -28,15 +28,16 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "fastapi" },
     { name = "google-search-results" },
     { name = "ipykernel" },
     { name = "ipywidgets" },
     { name = "openpyxl" },
     { name = "plotly" },
+    { name = "resend" },
     { name = "setuptools" },
-    { name = "streamlit" },
-    { name = "streamlit-autorefresh" },
     { name = "tavily" },
+    { name = "uvicorn" },
 ]
 
 [package.metadata]
@@ -62,15 +63,16 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "fastapi" },
     { name = "google-search-results" },
     { name = "ipykernel", specifier = ">=6.29.5" },
     { name = "ipywidgets", specifier = ">=8.1.5" },
     { name = "openpyxl" },
     { name = "plotly", specifier = ">=6.0.1" },
+    { name = "resend" },
     { name = "setuptools", specifier = ">=78.1.0" },
-    { name = "streamlit" },
-    { name = "streamlit-autorefresh" },
     { name = "tavily" },
+    { name = "uvicorn" },
 ]
 
 [[package]]
@@ -1903,6 +1905,19 @@ wheels = [
 ]
 
 [[package]]
+name = "resend"
+version = "2.19.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "requests" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/d8/21/1ddb4c221fc8310a99956f55c2e5e21b548378bde4a662473dcdda6f4018/resend-2.19.0.tar.gz", hash = "sha256:b11191561cdb0ed7aa193212b7c8865bf635013c4d11bd81caf471d1b362be02", size = 30604, upload-time = "2025-10-31T13:59:32.274Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a0/1f/f53acaad9299a72671c4314fd42c0b332464eaf0d20ea5303e75b8a9a963/resend-2.19.0-py2.py3-none-any.whl", hash = "sha256:1a8b9fcacbe058876ebce757ac2542103ed7227caec10e5c58613ee58615acaa", size = 50881, upload-time = "2025-10-31T13:59:31.015Z" },
+]
+
+[[package]]
 name = "rich"
 version = "14.2.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2087,18 +2102,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/6f/ec/66ca1578587bbaaea5757a7f074d3f762fff8d782ffb4497a83c5722aa44/streamlit-1.52.1.tar.gz", hash = "sha256:b036a71866b893c97fdebaa2a2ebd21ebf2af7daea4b3abe783a57b26f55b3ca", size = 8582829, upload-time = "2025-12-05T18:55:42.006Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/d0/d4/cdafd4cc940937410f465ca7a77dd34237182c2ddece624e08db959496f8/streamlit-1.52.1-py3-none-any.whl", hash = "sha256:97fee2c3421d350fd65548e45a20f506ec1b651d78f95ecacbc0c2f9f838081c", size = 9024748, upload-time = "2025-12-05T18:55:39.713Z" },
-]
-
-[[package]]
-name = "streamlit-autorefresh"
-version = "1.0.1"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "streamlit" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/88/8c/e48bee687408fe563652bda4a7f2f5ef85d5a527b1883513fdcb05f1e66b/streamlit-autorefresh-1.0.1.tar.gz", hash = "sha256:a89abf23f2c4e52d37be442115cd5566b41f382e3c09ff08817e17a25f50b8ed", size = 351385, upload-time = "2023-06-25T18:58:34.889Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/20/82/e378f178498f1d99a672d81df71ebe9693a106cec6a628ee52ce3288cd6d/streamlit_autorefresh-1.0.1-py3-none-any.whl", hash = "sha256:8f0a772eff9d56807d19dc422e44ef92d900bbb22b1b85de31d8d82ea7d875f1", size = 700771, upload-time = "2023-06-25T18:58:33.195Z" },
 ]
 
 [[package]]

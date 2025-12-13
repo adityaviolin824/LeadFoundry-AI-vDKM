@@ -327,9 +327,9 @@ def run_user_intake_stage(config: PipelineConfig, metrics: PipelineMetrics):
     if not isinstance(queries, list):
         raise CustomException(f"Expected 'queries' list in {config.suggested_queries_path}")
     metrics.total_queries = len(queries)
-    logger.info("==================================================")
+    logger.info("==================================================\n\n")
     logger.info("✓ Stage 1 complete: %d queries generated", metrics.total_queries)
-    logger.info("==================================================")
+    logger.info("==================================================\n\n")
 
     _maybe_progress(config, "stage_complete", {
     "stage": 1,
@@ -379,9 +379,9 @@ def run_research_from_queries(config: PipelineConfig, metrics: PipelineMetrics, 
     "name": "multi_query_research",
     "message": "Starting research across all search queries"
 })
-    logger.info("==================================================")
+    logger.info("==================================================\n\n")
     logger.info("Stage 2: Multi-Query Research Pipeline (sequential)")
-    logger.info("==================================================")
+    logger.info("==================================================\n\n")
 
     queries = load_queries(config.suggested_queries_path)
     if not queries:
@@ -396,22 +396,22 @@ def run_research_from_queries(config: PipelineConfig, metrics: PipelineMetrics, 
     for idx, query in enumerate(queries, start=1):
         _check_cancel(config)
         part_out = consolidated_parts_dir / f"consolidated_part_{idx}.json"
-        logger.info("==================================================")
+        logger.info("==================================================\n\n")
         logger.info("Processing query %d/%d -> %s", idx, len(queries), query)
-        logger.info("==================================================")
+        logger.info("==================================================\n\n")
 
         ok = execute_with_retry(run_all_agents_sync, query, str(part_out), config=config, timeout=config.query_timeout)
         if ok:
             metrics.successful_queries += 1
-            logger.info("==================================================")
+            logger.info("==================================================\n\n")
             logger.info("✓ Query %d succeeded", idx)
-            logger.info("==================================================")
+            logger.info("==================================================\n\n")
 
         else:
             metrics.failed_queries += 1
-            logger.info("==================================================")
+            logger.info("==================================================\n\n")
             logger.warning("✗ Query %d failed after retries", idx)
-            logger.info("==================================================")
+            logger.info("==================================================\n\n")
 
         completed += 1
         _maybe_progress(config, "query_progress", {
@@ -429,9 +429,9 @@ def run_research_from_queries(config: PipelineConfig, metrics: PipelineMetrics, 
 
     leads = safe_load_leads(consolidated_path)
     metrics.total_leads_found = len(leads)
-    logger.info("==================================================")
+    logger.info("==================================================\n\n")
     logger.info("✓ Stage 2 complete: %d leads found", metrics.total_leads_found)
-    logger.info("==================================================")
+    logger.info("==================================================\n\n")
 
     _maybe_progress(config, "stage_complete", {
     "stage": 2,
@@ -463,7 +463,7 @@ def run_deduplication(config: PipelineConfig, metrics: PipelineMetrics):
     deduped_leads = safe_load_leads(config.deduped_path)
     metrics.leads_after_dedup = len(deduped_leads)
     removed = max(0, metrics.total_leads_found - metrics.leads_after_dedup)
-    logger.info("==================================================")
+    logger.info("==================================================\n\n")
     logger.info("✓ Stage 3 complete: removed %d duplicates (%d -> %d)", removed, metrics.total_leads_found, metrics.leads_after_dedup)
     _maybe_progress(config, "stage_complete", {
     "stage": 3,
@@ -481,7 +481,7 @@ def run_sorting(config: PipelineConfig, metrics: PipelineMetrics):
     "message": "Sorting and prioritizing leads"
 })
     logger.info("Stage 4: Lead Prioritization")
-    logger.info("==================================================")
+    logger.info("==================================================\n\n")
 
     leads = safe_load_leads(config.deduped_path)
     sorted_leads = sort_leads(leads)
@@ -515,9 +515,9 @@ def run_export_to_excel(config: PipelineConfig, metrics: PipelineMetrics):
     if not Path(config.excel_out_path).exists():
         raise CustomException("Excel export failed - file not created")
     size_kb = Path(config.excel_out_path).stat().st_size / 1024
-    logger.info("==================================================")
+    logger.info("==================================================\n\n")
     logger.info("✓ Stage 5 complete: Excel saved (%0.1f KB)", size_kb)
-    logger.info("==================================================")
+    logger.info("==================================================\n\n")
 
     _maybe_progress(config, "stage_complete", {
     "stage": 5,

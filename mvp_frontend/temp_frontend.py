@@ -10,8 +10,8 @@ from io import BytesIO
 # -------------------------------------------------------------
 # Config
 # -------------------------------------------------------------
-API_URL = "https://leadfoundry-ai-vdkm.onrender.com"
-# API_URL = "http://127.0.0.1:8000"
+# API_URL = "https://leadfoundry-ai-vdkm.onrender.com"
+API_URL = "http://127.0.0.1:8000"
 REQUEST_TIMEOUT = 900
 
 st.set_page_config(page_title="LeadFoundry AI", page_icon="🧲", layout="wide")
@@ -26,8 +26,10 @@ def init():
     st.session_state.setdefault("run_id", None)
     st.session_state.setdefault("view", "create_profile")
     st.session_state.setdefault("finalize_response", None)
+    st.session_state.setdefault("email_sent", False)
 
 init()
+
 
 # -------------------------------------------------------------
 # API helpers
@@ -70,9 +72,13 @@ STATUS_LABELS = {
 interpret = lambda s: STATUS_LABELS.get(s, s)
 
 # -------------------------------------------------------------
-# Polling loop
+# Polling loop - UPDATED TO HANDLE MULTIPLE END STATES
 # -------------------------------------------------------------
-def poll_until(run_id, target_status, fail_status, stage_name):
+def poll_until_multi(run_id, target_statuses, fail_statuses, stage_name):
+    """
+    Poll until any of the target_statuses or fail_statuses is reached.
+    target_statuses and fail_statuses should be lists.
+    """
     TIMEOUT = 1500
     INTERVAL = 2.5
 
@@ -94,15 +100,18 @@ def poll_until(run_id, target_status, fail_status, stage_name):
                 )
             last_status = status
 
-        if status == target_status:
+        # Check if we've reached a target status
+        if status in target_statuses:
             spinner_box.empty()
             return data
 
-        if status == fail_status:
+        # Check if we've reached a failure status
+        if status in fail_statuses:
             spinner_box.empty()
             st.error(f"{interpret(status)}")
             return data
 
+        # Show spinner for active statuses (FIX 1: This already handles finalize_running correctly)
         if status.endswith("_running") or status.endswith("_queued"):
             spinner_box.empty()
             render_spinning_status(status_box, spinner_box, stage_name, 0.5)
@@ -112,6 +121,12 @@ def poll_until(run_id, target_status, fail_status, stage_name):
             return None
 
         time.sleep(INTERVAL)
+
+
+# Keep the original for backward compatibility
+def poll_until(run_id, target_status, fail_status, stage_name):
+    return poll_until_multi(run_id, [target_status], [fail_status], stage_name)
+
 
 # -------------------------------------------------------------
 # Sidebar
@@ -173,7 +188,7 @@ if st.session_state.view == "create_profile":
         with col2:
             locations = st.text_input("Locations", "odisha, west bengal")
             keywords = st.text_input("Keywords", "engineering workshop, technical training")
-            industries = st.text_input("Industries", "")
+            industries = st.text_input("Industries", "education")
 
         col1, col2 = st.columns(2)
         with col1:
@@ -187,9 +202,32 @@ if st.session_state.view == "create_profile":
         with col2:
             required_fields = st.text_input("Required Fields", "email, phone")
 
+        # -------------------------
+        # OPTIONAL EMAIL INPUT
+        # -------------------------
+        email = st.text_input(
+            "Email (optional)",
+            placeholder="Enter your email to receive leads automatically"
+        )
+
         submit = st.form_submit_button("Launch Lead Intake", use_container_width=True)
 
     if submit:
+        # -------------------------
+        # BASIC REQUIRED FIELD CHECKS
+        # -------------------------
+        if not entity_type.strip():
+            st.warning("Entity Type is required.")
+            st.stop()
+
+        if not locations.strip():
+            st.warning("At least one location is required.")
+            st.stop()
+
+        if not industries.strip():
+            st.warning("At least one industry is required.")
+            st.stop()
+
         payload = {
             "project": project,
             "entity_type": entity_type,
@@ -213,6 +251,10 @@ if st.session_state.view == "create_profile":
             "seeds": {"seed_websites": [], "seed_company_names": []},
         }
 
+        # attach email only if provided
+        if email and email.strip():
+            payload["email"] = email.strip()
+
         code, data = api_post("/runs/full", json=payload)
         if code == 201:
             st.session_state.run_id = data["run_id"]
@@ -220,6 +262,7 @@ if st.session_state.view == "create_profile":
             st.rerun()
         else:
             st.error(f"Failed to create run: {data}")
+
 
 # -------------------------------------------------------------
 # VIEW: INTAKE PROCESSING
@@ -236,29 +279,102 @@ elif st.session_state.view == "intake_processing":
         st.session_state.view = "research_processing"
         st.rerun()
 
+
 # -------------------------------------------------------------
-# VIEW: RESEARCH PROCESSING
+# VIEW: RESEARCH PROCESSING - UPDATED WITH BOTH FIXES
 # -------------------------------------------------------------
 elif st.session_state.view == "research_processing":
 
     run_id = st.session_state.run_id
-
     status_msg = st.empty()
 
-    result = poll_until(run_id, "research_completed", "research_failed", "research")
+    # Get initial status to check if email delivery is enabled
+    code, initial_data = api_get(f"/runs/{run_id}/status")
+    email_enabled = initial_data.get("email_delivery_enabled", False)
 
-    if result is not None:
-        status_msg.success("Research completed.")
+    if email_enabled:
+        # Wait for finalize_completed since email triggers auto-finalization
+        # FIX 1: Using stage_name="research & finalization" (already correct)
+        result = poll_until_multi(
+            run_id,
+            target_statuses=["finalize_completed"],
+            fail_statuses=["research_failed", "finalize_failed"],
+            stage_name="research & finalization"
+        )
+        
+        if result:
+            final_status = result.get("status")
+            
+            if final_status == "finalize_completed":
+                # Fetch finalize metadata so UI has excel_available
+                _, finalize_data = api_post(f"/runs/{run_id}/finalize_full")
+
+                if result.get("email_sent"):
+                    # Email success path
+                    st.session_state.finalize_response = finalize_data
+                    st.session_state.email_sent = True
+                    st.session_state.view = "email_success"
+                    st.rerun()
+                else:
+                    # Email failed but finalize succeeded
+                    email_error = result.get("email_error", "Unknown error")
+                    st.warning(f"Finalization completed, but email failed: {email_error}")
+                    st.info("You can still download the results manually below.")
+
+                    st.session_state.finalize_response = finalize_data
+                    st.session_state.view = "results"
+                    st.rerun()
+            else:
+                st.error(f"Pipeline failed at {final_status}")
+
+                            
+    else:
+        # No email - just wait for research_completed
+        result = poll_until(run_id, "research_completed", "research_failed", "research")
+        
+        if result and result.get("status") == "research_completed":
+            status_msg.success("Research completed.")
+            
+            if st.button("De-duplicate Sort & Generate Excel", type="primary", use_container_width=True):
+                code, data = api_post(f"/runs/{run_id}/finalize_full")
+                if code in (200, 202):
+                    st.session_state.finalize_response = data
+                    st.session_state.view = "results"
+                    st.rerun()
+                else:
+                    st.error("Finalize failed.")
 
 
-    if st.button("De-duplicate Sort & Generate Excel", type="primary", use_container_width=True):
-        code, data = api_post(f"/runs/{run_id}/finalize_full")
-        if code in (200, 202):
-            st.session_state.finalize_response = data
-            st.session_state.view = "results"
-            st.rerun()
-        else:
-            st.error("Finalize failed.")
+# -------------------------------------------------------------
+# VIEW: EMAIL SUCCESSFUL
+# -------------------------------------------------------------
+elif st.session_state.view == "email_success":
+
+    st.markdown(
+        """
+        <div style="text-align:center; margin-top:60px;">
+            <h1>🧲 Hot leads. Fresh cast.</h1>
+            <h2>Inbox delivery.</h2>
+            <br/>
+            <p style="font-size:18px;">
+                Your leads have been forged in the LeadFoundry<br/>
+                and delivered straight to your inbox.
+            </p>
+            <p style="opacity:0.7;">
+                Check spam if you don't see it. Even great leads get lost sometimes.
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    st.divider()
+
+    if st.button("🔁 Start New Search", type="primary", use_container_width=True):
+        st.session_state.clear()
+        st.session_state.view = "create_profile"
+        st.rerun()
+
 
 # -------------------------------------------------------------
 # VIEW: RESULTS
