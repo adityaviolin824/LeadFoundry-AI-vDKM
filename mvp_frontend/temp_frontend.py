@@ -17,7 +17,7 @@ st.set_page_config(page_title="LeadFoundry AI", page_icon="🧲", layout="wide")
 # -------------------------------------------------------------
 # Global CSS
 # -------------------------------------------------------------
-css_path = Path("templates/style.css")
+css_path = Path("mvp_frontend/templates/style.css")
 if css_path.exists():
     st.markdown(f"<style>{css_path.read_text()}</style>", unsafe_allow_html=True)
 
