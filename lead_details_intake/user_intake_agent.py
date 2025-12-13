@@ -5,18 +5,8 @@ from dotenv import load_dotenv
 
 load_dotenv(override=True)
 
-class SearchQueryOutput(BaseModel):
-    queries: List[str] = Field(
-        ..., 
-        description="A list of 2 simple, high-quality DuckDuckGo search queries." ######### CHANGE BEFORE DEPLOYMENT #########
-    )
-
-def create_lead_query_agent() -> Agent: # CONTROL THE NUMBER OF QUERIES -> HUGE IMPACT ON RUN TIME AND TOKENS # #################################
-    return Agent(
-        name="lead_query_agent",
-        model="gpt-4.1-mini", ################### HAVE TO MODIFY NUMBER OF QUERIES BEFORE DEPLOYING PROPERLY #################################
-        instructions="""
-You generate 2 simple, broad DuckDuckGo search queries from the provided JSON.
+instructions="""
+You generate 3 simple, broad DuckDuckGo search queries from the provided JSON.
 
 Input JSON structure:
 - project
@@ -32,7 +22,7 @@ Produce concise search queries that collect many potential leads without becomin
 
 Core rules:
 - Output exactly one JSON object matching the schema below and nothing else.
-- Return 2 queries.
+- Return 3 queries.
 - Each query must be 3 to 8 meaningful keywords.
 - Use plain words only. No quotes, boolean operators, punctuation, or special symbols.
 - Prefer lowercase keywords.
@@ -58,7 +48,21 @@ Output Schema:
 {
   "queries": ["query1", "query2", "query3"]
 }
-""",
+"""
+
+
+
+class SearchQueryOutput(BaseModel):
+    queries: List[str] = Field(
+        ..., 
+        description="A list of high-quality DuckDuckGo search queries."
+    )
+
+def create_lead_query_agent() -> Agent: # CONTROL THE NUMBER OF QUERIES -> HUGE IMPACT ON RUN TIME AND TOKENS # #################################
+    return Agent(
+        name="lead_query_agent",
+        model="gpt-4.1-mini", ################### HAVE TO MODIFY NUMBER OF QUERIES BEFORE DEPLOYING PROPERLY #################################
+        instructions = instructions,
         output_type=AgentOutputSchema(
             output_type=SearchQueryOutput,
             strict_json_schema=True,

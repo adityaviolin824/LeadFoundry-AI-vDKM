@@ -13,6 +13,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 import threading
 from contextlib import asynccontextmanager
+import shutil
 
 logger = logging.getLogger("leadfoundry_api")
 logging.basicConfig(level=logging.INFO)
@@ -65,6 +66,28 @@ from full_pipeline import (  # noqa: E402
     run_export_to_excel,
     write_json_atomic,
 )
+
+
+# Delete all run folders without a .pipeline.lock
+def _cleanup_unlocked_run_folders(base_dir: str = "runs"):
+    base = Path(base_dir)
+    if not base.exists():
+        return
+
+    for folder in base.iterdir():
+        if not folder.is_dir():
+            continue
+
+        lock = folder / ".pipeline.lock"
+        if lock.exists():
+            continue
+
+        try:
+            shutil.rmtree(folder, ignore_errors=True)
+            logger.info("Deleted unlocked run folder: %s", folder)
+        except Exception:
+            logger.exception("Failed to delete folder %s", folder)
+
 
 
 # Utilities
@@ -252,52 +275,48 @@ async def _async_run_finalize(run_id: str):
 
 # API endpoints (async, non-blocking)
 
-@app.post("/runs", status_code=201)
-async def create_run(payload: Dict):
+@app.post("/runs/full", status_code=201)
+async def create_and_start_run(payload: Dict):
     """
-    Create a new run and store the provided user_input JSON.
-    Returns run_id. No stage is executed yet.
+    Create a new run, write user_input, clean old runs,
+    and automatically start intake.
     """
     run_id = uuid.uuid4().hex
-    # create run records; pass a filename for the user input inside the run (we will write it non-blocking)
     user_input_filename = "user_input.json"
     meta = _create_run_records(user_input_filename)
     meta["run_id"] = run_id
 
-    # write the user_input to disk using to_thread so we don't block the event loop
+    # write input
     try:
-        await asyncio.to_thread(write_json_atomic, payload, meta["config"].user_input_path, False, False)
+        await asyncio.to_thread(
+            write_json_atomic,
+            payload,
+            meta["config"].user_input_path,
+            False,
+            False
+        )
     except Exception as e:
         logger.exception("Failed to write user_input for run %s: %s", run_id, e)
         raise HTTPException(500, f"Failed to create run input: {e}")
 
+    # store in memory
     async with _RUNS_LOCK:
         RUNS[run_id] = meta
 
-    logger.info("Created run %s at %s", run_id, meta["run_dir"])
-    return {"run_id": run_id, "run_dir": meta["run_dir"], "status": meta["status"]}
+    # cleanup old runs
+    await asyncio.to_thread(_cleanup_unlocked_run_folders)
 
-
-@app.post("/runs/{run_id}/intake", status_code=202)
-async def start_intake(run_id: str):
-    """
-    Start the user intake stage for an existing run.
-    """
-    meta = await _safe_get_run(run_id)
-    if not meta:
-        raise HTTPException(404, "run_id not found")
-    if meta["status"].startswith("intake_running"):
-        raise HTTPException(400, "Intake already running")
-
-    # create and schedule async intake task
+    # schedule intake
     async def _wrapped():
-        # intake is usually light, but still limit overall concurrency
         async with _PIPELINE_SEMAPHORE:
             await _async_run_intake(run_id)
 
     task = asyncio.create_task(_wrapped())
     await _safe_update_run(run_id, task=task, status="intake_queued")
-    return {"run_id": run_id, "status": "intake_queued"}
+
+    logger.info("Created run %s and queued intake", run_id)
+    return {"run_id": run_id, "status": "intake_queued", "run_dir": meta["run_dir"]}
+
 
 
 @app.post("/runs/{run_id}/research", status_code=202)
@@ -320,6 +339,41 @@ async def start_research(run_id: str):
     task = asyncio.create_task(_wrapped())
     await _safe_update_run(run_id, task=task, status="research_queued")
     return {"run_id": run_id, "status": "research_queued"}
+
+# @app.post("/runs/{run_id}/research", status_code=202)
+# async def start_research_dummy(run_id: str):
+#     """
+#     Dummy research stage for testing UI without running the actual pipeline.
+#     It instantly completes research and produces empty JSON results.
+#     """
+#     meta = await _safe_get_run(run_id)
+#     if not meta:
+#         raise HTTPException(404, "run_id not found")
+
+#     # Mark research as queued
+#     await _safe_update_run(run_id, status="research_queued")
+
+#     async def _wrapped():
+#         async with _PIPELINE_SEMAPHORE:
+#             # Simulate small delay
+#             await asyncio.sleep(15)
+#             # Mark research as completed with empty output
+#             await _safe_update_run(run_id, status="research_completed")
+
+#             # Write empty research output
+#             out_dir = Path(meta["run_dir"]) / "outputs"
+#             out_dir.mkdir(parents=True, exist_ok=True)
+#             empty_json_path = out_dir / "dummy_research_output.json"
+#             await asyncio.to_thread(write_json_atomic, {}, str(empty_json_path), False, False)
+
+#             # Write progress log
+#             await _write_progress(meta["run_dir"], "research", {"status": "completed", "dummy": True})
+
+#     task = asyncio.create_task(_wrapped())
+#     await _safe_update_run(run_id, task=task)
+
+#     return {"run_id": run_id, "status": "research_queued", "dummy": True}
+
 
 
 
