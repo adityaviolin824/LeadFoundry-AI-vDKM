@@ -3,12 +3,14 @@ import requests
 import time
 from pathlib import Path
 from templates.spinner import render_spinning_status
+import pandas as pd
 
 # -------------------------------------------------------------
 # Config
 # -------------------------------------------------------------
-API_URL = "http://localhost:8000"
-REQUEST_TIMEOUT = 600
+# API_URL = "https://leadfoundry-ai-vdkm.onrender.com"
+API_URL = "http://127.0.0.1:8000"
+REQUEST_TIMEOUT = 900
 
 st.set_page_config(page_title="LeadFoundry AI", page_icon="🧲", layout="wide")
 
@@ -36,8 +38,10 @@ def api_request(method, path, **kwargs):
     url = f"{API_URL}{path}"
     try:
         r = requests.request(method, url, timeout=REQUEST_TIMEOUT, **kwargs)
-        try: return r.status_code, r.json()
-        except: return r.status_code, {"raw": r.text}
+        try:
+            return r.status_code, r.json()
+        except:
+            return r.status_code, {"raw": r.text}
     except Exception as e:
         return 500, {"error": str(e)}
 
@@ -52,10 +56,13 @@ STATUS_LABELS = {
     "created": "🆕 Run created",
     "intake_queued": "📥 Intake queued",
     "intake_running": "📥 Intake running",
+    "intake_completed": "✅ Intake complete",
     "research_queued": "🔍 Research queued",
     "research_running": "🔍 Research running",
+    "research_completed": "🎉 Research complete",
     "finalize_queued": "🧹 Finalize queued",
     "finalize_running": "🧹 Finalize running",
+    "finalize_completed": "🎉 Complete",
     "intake_failed": "❌ Intake failed",
     "research_failed": "❌ Research failed",
     "finalize_failed": "❌ Finalize failed",
@@ -69,13 +76,12 @@ interpret = lambda s: STATUS_LABELS.get(s, s)
 # -------------------------------------------------------------
 def poll_until(run_id, target_status, fail_status, stage_name):
     TIMEOUT = 900
-    INTERVAL = 2.5 ######
+    INTERVAL = 2.5
 
-    status_box  = st.empty()
+    status_box = st.empty()
     spinner_box = st.empty()
 
     last_status = None
-
     start = time.time()
 
     while True:
@@ -83,9 +89,12 @@ def poll_until(run_id, target_status, fail_status, stage_name):
         code, data = api_get(f"/runs/{run_id}/status")
         status = data.get("status", "")
 
-        # Update only if changed to avoid flicker
         if status != last_status:
-            status_box.markdown(f"<div class='status-bar'>{interpret(status)}</div>", unsafe_allow_html=True)
+            if not (status.endswith("_running") or status.endswith("_queued")):
+                status_box.markdown(
+                    f"<div class='status-bar'>{interpret(status)}</div>",
+                    unsafe_allow_html=True
+                )
             last_status = status
 
         if status == target_status:
@@ -120,7 +129,7 @@ view_map = {
     "intake_processing": 1,
     "research_processing": 2,
     "finalize_processing": 3,
-    "results": 4
+    "results": 4,
 }
 
 active = view_map.get(st.session_state.view, 0)
@@ -142,11 +151,11 @@ for idx, label in enumerate(PIPELINE):
 # HERO
 # -------------------------------------------------------------
 st.markdown('<div class="lf-hero-title">🧲 LeadFoundry AI</div>', unsafe_allow_html=True)
-st.markdown('<div class="lf-hero-tagline">Find qualified leads using intelligent agent teams.</div>', unsafe_allow_html=True)
-
-# Add two blank lines here:
+st.markdown(
+    '<div class="lf-hero-tagline">Find qualified leads using intelligent agent teams.</div>',
+    unsafe_allow_html=True
+)
 st.markdown("<br><br>", unsafe_allow_html=True)
-
 
 # -------------------------------------------------------------
 # VIEW: CREATE PROFILE
@@ -156,25 +165,28 @@ if st.session_state.view == "create_profile":
     st.markdown('<div class="lf-section-title">📥 Create Lead Search Profile</div>', unsafe_allow_html=True)
 
     with st.form("form"):
-        col1, col2 = st.columns(2)
 
+        col1, col2 = st.columns(2)
         with col1:
             project = st.text_input("Project Name", "college workshops")
             entity_type = st.text_input("Entity Type", "college")
             entity_subtype = st.text_input("Entity Subtype", "technical college")
-
         with col2:
             locations = st.text_input("Locations", "odisha, west bengal")
             keywords = st.text_input("Keywords", "engineering workshop, technical training")
             industries = st.text_input("Industries", "")
 
         col1, col2 = st.columns(2)
-        with col1: roles = st.text_input("Roles", "principal, director")
-        with col2: seniority = st.text_input("Seniority", "senior")
+        with col1:
+            roles = st.text_input("Roles", "principal, director")
+        with col2:
+            seniority = st.text_input("Seniority", "senior")
 
         col1, col2 = st.columns(2)
-        with col1: lead_limit = st.number_input("Lead Limit", 10, 1000, 100)
-        with col2: required_fields = st.text_input("Required Fields", "email, phone")
+        with col1:
+            lead_limit = st.number_input("Lead Limit", 10, 1000, 100)
+        with col2:
+            required_fields = st.text_input("Required Fields", "email, phone")
 
         submit = st.form_submit_button("🚀 Launch Lead Intake", use_container_width=True)
 
@@ -187,7 +199,7 @@ if st.session_state.view == "create_profile":
                 "locations": [x.strip() for x in locations.split(",")],
                 "industries": [x.strip() for x in industries.split(",") if x.strip()],
                 "keywords": [x.strip() for x in keywords.split(",")],
-                "company_sizes": []
+                "company_sizes": [],
             },
             "personas": {
                 "roles": [x.strip() for x in roles.split(",")],
@@ -196,10 +208,10 @@ if st.session_state.view == "create_profile":
             "constraints": {
                 "lead_limit": int(lead_limit),
                 "required_fields": [x.strip() for x in required_fields.split(",")],
-                "exclusions": []
+                "exclusions": [],
             },
             "verification": {"level": "strict", "require_official_domain": True},
-            "seeds": {"seed_websites": [], "seed_company_names": []}
+            "seeds": {"seed_websites": [], "seed_company_names": []},
         }
 
         code, data = api_post("/runs/full", json=payload)
@@ -221,7 +233,7 @@ elif st.session_state.view == "intake_processing":
 
     st.success("Intake completed.")
 
-    if st.button("🔍 Start Research", type="primary", use_container_width=True):
+    if st.button("🔍 Start Lead Research", type="primary", use_container_width=True):
         api_post(f"/runs/{run_id}/research")
         st.session_state.view = "research_processing"
         st.rerun()
@@ -237,7 +249,7 @@ elif st.session_state.view == "research_processing":
 
     st.success("Research completed.")
 
-    if st.button("🧹 Run Finalize & Generate Excel", type="primary", use_container_width=True):
+    if st.button("🧹 De-duplicate Sort & Generate Excel", type="primary", use_container_width=True):
         code, data = api_post(f"/runs/{run_id}/finalize_full")
         if code in (200, 202):
             st.session_state.finalize_response = data
@@ -254,15 +266,42 @@ elif st.session_state.view == "results":
     st.markdown('<div class="lf-section-title">🎉 Results & Download</div>', unsafe_allow_html=True)
 
     run_id = st.session_state.run_id
-    data = st.session_state.finalize_response or {}
+    data = st.session_state.finalize_response if st.session_state.finalize_response is not None else {}
 
+    # -------------------------
+    # EXCEL PREVIEW + DOWNLOAD
+    # -------------------------
+    st.markdown("### Preview of Leads (first 20 rows)")
+
+    excel_url = f"{API_URL}/runs/{run_id}/finalize_full/download_excel"
     excel_available = data.get("excel_available", False)
-    url = f"{API_URL}/runs/{run_id}/finalize_full/download_excel"
 
     if excel_available:
-        r = requests.get(url)
+
+        r = requests.get(excel_url)
+
         if r.status_code == 200:
-            st.success("📥 Excel ready for download!")
+            st.success("📥 Excel ready for preview & download!")
+
+            # -------- Preview Excel --------
+            try:
+                import pandas as pd
+                from io import BytesIO
+
+                excel_bytes = BytesIO(r.content)
+                df = pd.read_excel(excel_bytes)
+
+                if isinstance(df, pd.DataFrame) and len(df) > 0:
+                    max_rows = min(20, len(df))
+                    st.dataframe(df.head(max_rows), use_container_width=True)
+                    st.caption(f"Showing {max_rows} of {len(df)} rows from Excel")
+                else:
+                    st.info("Excel file is empty.")
+
+            except Exception as e:
+                st.warning(f"Could not preview Excel: {e}")
+
+            # -------- Download Button --------
             st.download_button(
                 "Download Excel",
                 data=r.content,
@@ -271,10 +310,15 @@ elif st.session_state.view == "results":
                 use_container_width=True,
                 type="primary"
             )
+
         else:
-            st.error("Excel not found.")
+            st.error("Excel not found or not accessible.")
+
     else:
         st.warning("Excel not ready yet.")
+
+
+
 
     if st.button("🔄 Start New Search", use_container_width=True):
         st.session_state.run_id = None

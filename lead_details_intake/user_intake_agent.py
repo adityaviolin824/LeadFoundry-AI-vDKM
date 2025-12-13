@@ -1,12 +1,19 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from typing import List
 from agents import Agent, AgentOutputSchema
 from dotenv import load_dotenv
 
 load_dotenv(override=True)
 
-instructions="""
-You generate 3 simple, broad DuckDuckGo search queries from the provided JSON.
+# ============================================================
+# Configuration <<<NUMBER CAN SEVERLY AFFECT RUNTIME>>>>
+# ============================================================
+QUERY_COUNT = 3 
+# ============================================================
+
+
+instructions = f"""
+You generate {QUERY_COUNT} simple, broad DuckDuckGo search queries from the provided JSON.
 
 Input JSON structure:
 - project
@@ -22,7 +29,7 @@ Produce concise search queries that collect many potential leads without becomin
 
 Core rules:
 - Output exactly one JSON object matching the schema below and nothing else.
-- Return 3 queries.
+- Return {QUERY_COUNT} queries.
 - Each query must be 3 to 8 meaningful keywords.
 - Use plain words only. No quotes, boolean operators, punctuation, or special symbols.
 - Prefer lowercase keywords.
@@ -42,27 +49,33 @@ Query angles to mix:
 4. role + entity_subtype + location (optional)
 5. keyword + location
 
-If some fields are missing, still generate at least 1 queries using what is available.
+If some fields are missing, still generate at least 1 query using what is available.
 
 Output Schema:
-{
-  "queries": ["query1", "query2", "query3"]
-}
+{{
+  "queries": ["query1", "query2", ..., up to {QUERY_COUNT}]
+}}
 """
-
 
 
 class SearchQueryOutput(BaseModel):
     queries: List[str] = Field(
         ..., 
-        description="A list of high-quality DuckDuckGo search queries."
+        description=f"A list of exactly {QUERY_COUNT} simple high-quality DuckDuckGo search queries."
     )
 
-def create_lead_query_agent() -> Agent: # CONTROL THE NUMBER OF QUERIES -> HUGE IMPACT ON RUN TIME AND TOKENS # #################################
+    @model_validator(mode="after")
+    def ensure_correct_query_count(self):
+        if len(self.queries) != QUERY_COUNT:
+            raise ValueError(f"Must return exactly {QUERY_COUNT} queries.")
+        return self
+
+
+def create_lead_query_agent() -> Agent:
     return Agent(
         name="lead_query_agent",
-        model="gpt-4.1-mini", ################### HAVE TO MODIFY NUMBER OF QUERIES BEFORE DEPLOYING PROPERLY #################################
-        instructions = instructions,
+        model="gpt-4.1-mini",
+        instructions=instructions,
         output_type=AgentOutputSchema(
             output_type=SearchQueryOutput,
             strict_json_schema=True,
