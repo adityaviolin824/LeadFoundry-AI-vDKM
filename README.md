@@ -6,22 +6,31 @@
 ---
 
 ## 1. User Input → Query Generation
-User preferences are processed by an intake agent that produces **3 to 5 optimized search queries**. These queries act as the root of all downstream lead discovery.
+User preferences are processed by an intake agent that produces **3 to 5 optimized search queries**.  
+These queries act as the root of all downstream lead discovery.
+
+The intake stage:
+- Validates and normalizes user constraints
+- Generates search-intent-aligned queries
+- Persists inputs atomically per run
+- Remains fully deterministic and idempotent
 
 ---
 
 ## 2. Lead Search Agents
 The system runs four research agents:
-- LinkedIn research agent
-- Facebook research agent
-- Company website research agent
-- Google Maps or SERP API agent
+- LinkedIn research agent  
+- Facebook research agent  
+- Company website research agent  
+- Google Maps or SERP API agent  
 
 Each agent:
 - Uses MCP search tools when available (DuckDuckGo MCP first, Tavily fallback)
-- Never performs scraping or HTML extraction
+- Never uses unauthorized APIs/extraction tools
 - Runs inside its own isolated MCP session
 - Produces structured or semi-structured lead data for normalization
+
+Agents operate independently, ensuring that failure in one source never blocks others.
 
 ---
 
@@ -35,21 +44,25 @@ Each run is sandboxed inside:
 - its own progress files
 - its own run-specific MCP sessions
 
-This allows high throughput without cross-contamination.
+This allows high throughput without cross-contamination or shared-state bugs.
+
+---
 
 ### 3.1 Strong async architecture
-The API uses:
-- **asyncio.Task** for non-blocking execution
-- **async semaphores** to safely control concurrency
-- **asyncio.to_thread** for CPU or blocking I/O fallback
-- thread-safe `threading.Event` for pipeline cancellation
-- per-run `progress_stage.json` files written with atomic I/O
-- async read and write locks preventing race conditions
+The API is built around a strict async-first design:
+- `asyncio.Task` for non-blocking pipeline stages
+- async semaphores to cap concurrent execution
+- `asyncio.to_thread` for CPU-bound or blocking I/O
+- thread-safe `threading.Event` for cancellation compatibility
+- per-stage progress files written using atomic I/O
+- async locks guarding all shared registries
 
-This creates predictable parallelism even under heavy load.
+This produces predictable execution even under load.
 
-### 3.2 Safe isolated multi-processing
-Every run creates:
+---
+
+### 3.2 Safe isolated run directories
+Each run creates the following structure:
 
 /runs/<run_id>/
 ├── .pipeline.lock
@@ -57,12 +70,11 @@ Every run creates:
 └── outputs/
 
 
-
-This ensures:
-- Multiple users can run pipelines in parallel
-- Crashes in one run never affect others
-- Writes never collide because paths are isolated
-- Old runs can be cleaned safely
+This guarantees:
+- Parallel users do not collide
+- Partial failures are fully contained
+- Writes are never shared across runs
+- Old runs can be safely garbage-collected
 
 ---
 
@@ -75,46 +87,66 @@ Agents resolve data using:
 - Tavily when MCP returns insufficient results
 - SERP API for Google Maps and place-level signals
 
+Search providers are dynamically selected with graceful fallback.
+
+---
+
 ### 4.2 Structuring and normalization
-A strict LLM structuring agent:
-- Converts raw agent output into the LeadList schema
-- Fills missing fields with "unknown"
+A strict LLM-based structuring layer:
+- Converts raw agent output into a fixed LeadList schema
+- Fills missing fields with `"unknown"`
 - Validates emails, phone numbers, and URLs
-- Rejects malformed JSON and retries
+- Rejects malformed JSON and retries safely
 - Guarantees deterministic output shape
 
+No downstream stage ever consumes unvalidated data.
+
+---
+
 ### 4.3 Full error isolation and strong exception handling
-The research layer has resilient exception handling:
+The research layer is designed for safe degradation:
 - Individual agent failures do not stop the run
 - Exceptions are captured as structured error objects
-- Partial results are still preserved
-- Async tasks isolate failures instead of propagating them
-- Pipeline continues to the next query unless cancellation is requested
+- Partial results are preserved
+- Async task boundaries prevent cascading failures
+- The pipeline proceeds unless explicitly cancelled
 
-The goal is stability and safe degradation, not forced success.
+The goal is stability, not forced success.
 
 ---
 
-## 5. Consolidation and Raw Storage
+## 5. Consolidation and raw storage
 After all queries complete:
-- Leads are appended to a consolidated JSON file
-- Deduplication is deferred to downstream stages
+- Leads are appended into a consolidated JSON file
+- Deduplication is intentionally deferred
 - Atomic writes guarantee crash-safe persistence
-- Backups prevent overwriting valid data
-- Invalid or partial writes never corrupt the file
+- Backups prevent accidental overwrite
+- Invalid writes never corrupt existing data
+
+Raw data is preserved exactly as produced.
 
 ---
 
-## 6. Downstream Processing (external stage)
-A dedicated second stage performs:
+## 6. Downstream processing and delivery
+A dedicated downstream stage performs:
 - deduplication
 - contact completeness scoring
 - ranking
 - Excel export
 
-The research layer focuses solely on producing consistent raw data.
+This stage can be triggered:
+- manually via API
+- automatically when email delivery is enabled
+
+When an email is provided:
+- research → finalize → email delivery happens automatically
+- Excel is attached if available
+- graceful fallback sends HTML-only email if Excel generation fails
+- delivery status is persisted per run
+
+The research layer remains purely data-focused.
 
 ---
 
 ## One sentence summary
-Async-first, multi-run pipeline with run ID isolation, MCP-powered research agents, strict LLM structuring, atomic JSON persistence, and robust exception handling for safe partial completion even when upstream tools fail.
+Async-first, multi-run lead research system with run-level isolation, MCP-powered agents, strict LLM structuring, atomic persistence, automatic email delivery, and robust failure containment that guarantees safe partial completion under real-world conditions.
