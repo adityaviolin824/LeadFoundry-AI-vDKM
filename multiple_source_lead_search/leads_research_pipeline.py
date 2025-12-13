@@ -1,10 +1,10 @@
 # final_run_linkedin.py
 import asyncio
 import json
+import tempfile
 from contextlib import AsyncExitStack
 from pathlib import Path
-from typing import List, Dict, Any
-import tempfile
+from typing import List, Dict, Any, Optional
 import shutil
 
 from agents import Agent, Runner, trace
@@ -22,104 +22,109 @@ from multiple_source_lead_search.agent_models_and_structure import (
 logger = logging.getLogger(__name__)
 
 
-# ---------------------------------------------------------------------
-# Core agent runner (research + structuring)
-# ---------------------------------------------------------------------
-async def common_research_agent_runner(
-    agent: Agent,
-    query: str,
-    trace_name: str,
-) -> Dict[str, Any]:
-    """
-    Runs:
-    - research agent (with MCP servers)
-    - structuring agent (post-processing)
+AGENT_TIMEOUT_SECONDS = 240   # 3 minutes
 
-    Returns a structured dict or raises CustomException on fatal failure.
+async def run_with_timeout(agent, input_json):
+    """
+    Runs an agent with a hard timeout.
+    If the agent takes more than AGENT_TIMEOUT_SECONDS,
+    it is cancelled and a timeout JSON is returned.
     """
     try:
+        return await asyncio.wait_for(
+            agent.run(input_json),
+            timeout=AGENT_TIMEOUT_SECONDS
+        )
+    except asyncio.TimeoutError:
+        return {
+            "agent": agent.name,
+            "status": "timeout",
+            "message": f"{agent.name} exceeded {AGENT_TIMEOUT_SECONDS} seconds"
+        }
+
+
+
+async def common_research_agent_runner(agent: Agent, query: str, trace_name: str) -> Dict[str, Any]:
+    try:
         async with AsyncExitStack() as stack:
-            # connect MCP servers for this agent instance
             connected = [await stack.enter_async_context(s) for s in agent.mcp_servers]
             agent.mcp_servers = connected
 
-            # run research agent
+            # Apply 3 minute timeout here
             with trace(trace_name):
-                research_result = await Runner.run(agent, query)
+                research_result = await asyncio.wait_for(
+                    Runner.run(agent, query),
+                    timeout=AGENT_TIMEOUT_SECONDS
+                )
 
-        # run structuring agent (no MCP/tools)
         struct_agent = create_structuring_agent()
         with trace(f"{trace_name}_structurer"):
-            struct_run = await Runner.run(
-                struct_agent,
-                research_result.final_output,
-            )
+            struct_run = await Runner.run(struct_agent, research_result.final_output)
 
         if hasattr(struct_run, "final_output") and struct_run.final_output is not None:
             return struct_run.final_output.model_dump()
+        else:
+            logger.warning("Structuring agent returned unexpected shape for trace=%s", trace_name)
+            return {"error": "structuring_agent_unexpected_shape", "raw": str(struct_run)}
 
-        logger.warning(
-            "Structuring agent returned unexpected shape for trace=%s",
-            trace_name,
-        )
+    except asyncio.TimeoutError:
+        logger.error("Timeout: %s exceeded %s seconds", trace_name, AGENT_TIMEOUT_SECONDS)
         return {
             "agent": trace_name,
-            "error": "structuring_agent_unexpected_shape",
-            "leads": [],
+            "status": "timeout",
+            "message": f"{trace_name} exceeded {AGENT_TIMEOUT_SECONDS} seconds"
         }
 
     except Exception as e:
-        logger.exception(
-            "Error in common_research_agent_runner trace=%s: %s",
-            trace_name,
-            e,
-        )
-        raise CustomException(
-            f"Research run failed for trace={trace_name}: {e}"
-        ) from e
+        logger.exception("Error in common_research_agent_runner trace=%s: %s", trace_name, e)
+        raise CustomException(f"Research run failed for trace={trace_name}: {e}") from e
 
 
-# ---------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------
+
 def _extract_leads_from_chunk(chunk: Any) -> List[Dict[str, Any]]:
     """
-    Normalize a single agent output into a list of leads.
+    Normalize a single chunk returned by an agent into a list of lead dicts.
+    Accepted shapes:
+    - {"leads": [...]}
+    - {"results": [...]}
+    - [ {...}, {...} ]
+    If the chunk is unexpected, returns an empty list and logs debug info.
     """
+    leads: List[Dict[str, Any]] = []
     if not chunk:
-        return []
-
+        return leads
     if isinstance(chunk, dict):
-        if isinstance(chunk.get("leads"), list):
-            return chunk["leads"]
-        if isinstance(chunk.get("results"), list):
-            return chunk["results"]
-
+        if "leads" in chunk and isinstance(chunk["leads"], list):
+            leads.extend(chunk["leads"])
+            return leads
+        if "results" in chunk and isinstance(chunk["results"], list):
+            leads.extend(chunk["results"])
+            return leads
     if isinstance(chunk, list):
-        return chunk
+        leads.extend(chunk)
+        return leads
 
     logger.debug("Skipping unexpected lead chunk shape: %s", type(chunk))
-    return []
+    return leads
 
 
-def consolidate_and_save(
-    all_leads: List[Dict[str, Any]],
-    json_path: str,
-    *,
-    make_backup: bool = True,
-) -> None:
+def consolidate_and_save(all_leads: List[Dict[str, Any]], json_path: str, *, make_backup: bool = True) -> None:
     """
-    Append new leads to existing JSON atomically.
+    Merge newly collected lead chunks with existing leads, then save atomically.
+    Preserves all existing leads and appends new ones.
     """
+    import tempfile
+    import shutil
+
     path = Path(json_path)
     path.parent.mkdir(parents=True, exist_ok=True)
 
-    # extract new leads
+    # Extract new leads from agent responses
     new_leads: List[Dict[str, Any]] = []
     for chunk in all_leads:
         new_leads.extend(_extract_leads_from_chunk(chunk))
 
-    # load existing leads
+    # Load existing leads if present
     existing_leads: List[Dict[str, Any]] = []
     if path.exists():
         try:
@@ -127,57 +132,45 @@ def consolidate_and_save(
                 data = json.load(f)
             if isinstance(data, dict) and isinstance(data.get("leads"), list):
                 existing_leads = data["leads"]
+            else:
+                logger.warning("Existing file %s missing 'leads' list. Ignored.", path)
         except Exception as e:
-            logger.warning(
-                "Could not parse existing JSON at %s: %s. Starting fresh.",
-                path,
-                e,
-            )
+            logger.warning("Could not parse existing JSON at %s: %s. Starting fresh.", path, e)
 
+    total_existing = len(existing_leads)
+    total_new = len(new_leads)
     combined = {"leads": existing_leads + new_leads}
 
-    # optional backup
+    # Optional backup
     if make_backup and path.exists():
         try:
-            shutil.copy2(path, path.with_suffix(path.suffix + ".bak"))
+            backup_path = path.with_suffix(path.suffix + ".bak")
+            shutil.copy2(path, backup_path)
+            logger.debug("Backup created: %s", backup_path)
         except Exception:
-            logger.debug("Backup failed for %s", path, exc_info=True)
+            logger.debug("Backup failed for %s (continuing without backup)", path, exc_info=True)
 
-    # atomic write
-    with tempfile.NamedTemporaryFile(
-        "w",
-        delete=False,
-        dir=str(path.parent),
-        encoding="utf-8",
-    ) as tf:
-        json.dump(combined, tf, indent=2, ensure_ascii=False)
-        temp_file = tf.name
-
-    Path(temp_file).replace(path)
-
-    logger.info(
-        "Saved consolidated leads: %s (existing=%d new=%d total=%d)",
-        path,
-        len(existing_leads),
-        len(new_leads),
-        len(combined["leads"]),
-    )
+    # Atomic write
+    try:
+        with tempfile.NamedTemporaryFile("w", delete=False, dir=str(path.parent), encoding="utf-8") as tf:
+            json.dump(combined, tf, indent=2, ensure_ascii=False)
+            temp_file = tf.name
+        Path(temp_file).replace(path)
+        logger.info(
+            "Saved consolidated leads: %s (existing=%d new=%d total=%d)",
+            path, total_existing, total_new, len(combined["leads"])
+        )
+    except Exception as e:
+        logger.exception("Write failed for %s: %s", path, e)
+        raise
 
 
-# ---------------------------------------------------------------------
-# Public entrypoints
-# ---------------------------------------------------------------------
+
 def run_all_agents_sync(query: str, json_path: str) -> None:
     asyncio.run(run_all_agents(query, json_path))
 
 
 async def run_all_agents(query: str, json_path: str) -> None:
-    """
-    For ONE query:
-    - runs all agents in parallel
-    - waits for all to finish
-    - consolidates results
-    """
     agent_creators = [
         ("linkedin", create_linkedin_search_agent),
         ("facebook", create_facebook_search_agent),
@@ -185,36 +178,24 @@ async def run_all_agents(query: str, json_path: str) -> None:
         ("gmap", create_serpapi_search_agent),
     ]
 
-    # launch all agents in parallel
-    tasks: List[tuple[str, asyncio.Task]] = []
-    for name, factory in agent_creators:
-        agent = factory()
-        trace_name = f"run_{name}_agent"
-        task = asyncio.create_task(
-            common_research_agent_runner(agent, query, trace_name)
-        )
-        tasks.append((name, task))
-
-    # wait for all agents
-    results = await asyncio.gather(
-        *(task for _, task in tasks),
-        return_exceptions=True,
-    )
-
-    # collect results
     all_leads: List[Dict[str, Any]] = []
-    for (name, _), result in zip(tasks, results):
-        if isinstance(result, Exception):
-            logger.error("Agent %s failed: %s", name, result)
-            all_leads.append(
-                {"agent": name, "error": str(result), "leads": []}
-            )
-        else:
+
+    for name, factory in agent_creators:
+        trace_name = f"run_{name}_agent"
+        try:
+            agent = factory()
+            structured = await common_research_agent_runner(agent, query, trace_name)
+            all_leads.append(structured)
             logger.info(
                 "Agent %s completed: collected %d leads",
                 name,
-                len(result.get("leads", [])) if isinstance(result, dict) else 0,
+                len(structured.get("leads", [])) if isinstance(structured, dict) else 0,
             )
-            all_leads.append(result)
+        except CustomException as ce:
+            logger.error("Agent %s failed with CustomException: %s", name, ce)
+            all_leads.append({"agent": name, "error": str(ce)})
+        except Exception as e:
+            logger.exception("Agent %s unexpected error: %s", name, e)
+            all_leads.append({"agent": name, "error": str(e)})
 
     consolidate_and_save(all_leads, json_path)
