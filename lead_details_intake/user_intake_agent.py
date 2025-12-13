@@ -8,7 +8,7 @@ load_dotenv(override=True)
 class SearchQueryOutput(BaseModel):
     queries: List[str] = Field(
         ..., 
-        description="A list of 3 simple, high-quality DuckDuckGo search queries."
+        description="A list of 2 simple, high-quality DuckDuckGo search queries." ######### CHANGE BEFORE DEPLOYMENT #########
     )
 
 def create_lead_query_agent() -> Agent: # CONTROL THE NUMBER OF QUERIES -> HUGE IMPACT ON RUN TIME AND TOKENS # #################################
@@ -16,7 +16,7 @@ def create_lead_query_agent() -> Agent: # CONTROL THE NUMBER OF QUERIES -> HUGE 
         name="lead_query_agent",
         model="gpt-4.1-mini", ################### HAVE TO MODIFY NUMBER OF QUERIES BEFORE DEPLOYING PROPERLY #################################
         instructions="""
-You generate 3 simple, broad DuckDuckGo search queries from the provided JSON.
+You generate 2 simple, broad DuckDuckGo search queries from the provided JSON.
 
 Input JSON structure:
 - project
@@ -32,7 +32,7 @@ Produce concise search queries that collect many potential leads without becomin
 
 Core rules:
 - Output exactly one JSON object matching the schema below and nothing else.
-- Return 3 queries.
+- Return 2 queries.
 - Each query must be 3 to 8 meaningful keywords.
 - Use plain words only. No quotes, boolean operators, punctuation, or special symbols.
 - Prefer lowercase keywords.
