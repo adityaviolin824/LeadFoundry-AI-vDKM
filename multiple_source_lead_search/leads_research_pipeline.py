@@ -22,39 +22,63 @@ from multiple_source_lead_search.agent_models_and_structure import (
 logger = logging.getLogger(__name__)
 
 
-async def common_research_agent_runner(agent: Agent, query: str, trace_name: str) -> Dict[str, Any]:
+AGENT_TIMEOUT_SECONDS = 180   # 3 minutes
+
+async def run_with_timeout(agent, input_json):
     """
-    Run a research agent (with MCP servers connected), then normalize its output
-    using the structuring agent. Returns a dict (LeadList.model_dump()).
-    Raises CustomException on fatal internal errors.
+    Runs an agent with a hard timeout.
+    If the agent takes more than AGENT_TIMEOUT_SECONDS,
+    it is cancelled and a timeout JSON is returned.
     """
     try:
-        # connect MCP servers
+        return await asyncio.wait_for(
+            agent.run(input_json),
+            timeout=AGENT_TIMEOUT_SECONDS
+        )
+    except asyncio.TimeoutError:
+        return {
+            "agent": agent.name,
+            "status": "timeout",
+            "message": f"{agent.name} exceeded {AGENT_TIMEOUT_SECONDS} seconds"
+        }
+
+
+
+async def common_research_agent_runner(agent: Agent, query: str, trace_name: str) -> Dict[str, Any]:
+    try:
         async with AsyncExitStack() as stack:
             connected = [await stack.enter_async_context(s) for s in agent.mcp_servers]
             agent.mcp_servers = connected
 
-            # run research agent with a named trace
+            # Apply 3 minute timeout here
             with trace(trace_name):
-                research_result = await Runner.run(agent, query)
+                research_result = await asyncio.wait_for(
+                    Runner.run(agent, query),
+                    timeout=AGENT_TIMEOUT_SECONDS
+                )
 
-        # run structuring agent (no MCP/tools) with its own trace name
         struct_agent = create_structuring_agent()
         with trace(f"{trace_name}_structurer"):
             struct_run = await Runner.run(struct_agent, research_result.final_output)
 
-        # structured final_output should be a parsed LeadList
         if hasattr(struct_run, "final_output") and struct_run.final_output is not None:
             return struct_run.final_output.model_dump()
         else:
-            # unexpected shape from structuring agent: return raw wrapper for debugging
             logger.warning("Structuring agent returned unexpected shape for trace=%s", trace_name)
             return {"error": "structuring_agent_unexpected_shape", "raw": str(struct_run)}
 
+    except asyncio.TimeoutError:
+        logger.error("Timeout: %s exceeded %s seconds", trace_name, AGENT_TIMEOUT_SECONDS)
+        return {
+            "agent": trace_name,
+            "status": "timeout",
+            "message": f"{trace_name} exceeded {AGENT_TIMEOUT_SECONDS} seconds"
+        }
+
     except Exception as e:
-        # Wrap and re-raise as CustomException so caller can decide to continue
         logger.exception("Error in common_research_agent_runner trace=%s: %s", trace_name, e)
         raise CustomException(f"Research run failed for trace={trace_name}: {e}") from e
+
 
 
 def _extract_leads_from_chunk(chunk: Any) -> List[Dict[str, Any]]:

@@ -73,7 +73,7 @@ interpret = lambda s: STATUS_LABELS.get(s, s)
 # Polling loop
 # -------------------------------------------------------------
 def poll_until(run_id, target_status, fail_status, stage_name):
-    TIMEOUT = 900
+    TIMEOUT = 1500
     INTERVAL = 2.5
 
     status_box = st.empty()
@@ -243,8 +243,13 @@ elif st.session_state.view == "research_processing":
 
     run_id = st.session_state.run_id
 
-    poll_until(run_id, "research_completed", "research_failed", "research")
-    st.success("Research completed.")
+    status_msg = st.empty()
+
+    result = poll_until(run_id, "research_completed", "research_failed", "research")
+
+    if result is not None:
+        status_msg.success("Research completed.")
+
 
     if st.button("De-duplicate Sort & Generate Excel", type="primary", use_container_width=True):
         code, data = api_post(f"/runs/{run_id}/finalize_full")
