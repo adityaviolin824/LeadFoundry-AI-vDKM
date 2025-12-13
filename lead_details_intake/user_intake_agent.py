@@ -8,7 +8,7 @@ load_dotenv(override=True)
 # ============================================================
 # Configuration <<<NUMBER CAN SEVERELY AFFECT RUNTIME>>>
 # ============================================================
-QUERY_COUNT = 2
+QUERY_COUNT = 3
 # ============================================================
 
 
@@ -31,7 +31,7 @@ Core rules:
 - Output exactly one JSON object matching the schema below and nothing else.
 - Return exactly {QUERY_COUNT} queries.
 - Never generate more than {QUERY_COUNT} queries.
-- Each query must be 3 to 8 meaningful keywords.
+- Each query must be 2 to 5 meaningful keywords.
 - Use plain words only. No quotes, boolean operators, punctuation, or special symbols.
 - Prefer lowercase keywords.
 - Avoid stopwords like "the", "and", "of".
@@ -55,7 +55,7 @@ until exactly {QUERY_COUNT} queries are produced.
 
 Output Schema:
 {{
-  "queries": ["query1", "query2"]
+  "queries": ["query1", "query2", .....]
 }}
 """
 

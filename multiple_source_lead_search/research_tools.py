@@ -62,10 +62,12 @@ def researcher_mcp_stdio_servers(
 # TAVILY SEARCH TOOL (Function Tool)
 # ======================================================================
 
+TAVILY_MAX_RESULTS = 20
+
 @function_tool
 def tavily_search(
     query: str,
-    max_results: int = 5,
+    max_results: int,
     include_domains: list[str] | None = None,
     exclude_domains: list[str] | None = None,
 ) -> dict:
@@ -95,11 +97,11 @@ def tavily_search(
         
         response = client.search(
             query=query,
-            max_results=max_results,
+            max_results=TAVILY_MAX_RESULTS,
             include_domains=include_domains,
             exclude_domains=exclude_domains,
             search_depth="advanced",  # More thorough search
-            include_answer=True,      # Get AI-generated summary
+            include_answer=False,      # DONT Get AI-generated summary
         )
         
         return response
