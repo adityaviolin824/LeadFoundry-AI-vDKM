@@ -322,22 +322,6 @@ async def start_research(run_id: str):
     return {"run_id": run_id, "status": "research_queued"}
 
 
-@app.post("/runs/{run_id}/finalize", status_code=202)
-async def start_finalize(run_id: str):
-    """
-    Run deduplication, sorting and export in a single staged job.
-    """
-    meta = await _safe_get_run(run_id)
-    if not meta:
-        raise HTTPException(404, "run_id not found")
-
-    async def _wrapped():
-        async with _PIPELINE_SEMAPHORE:
-            await _async_run_finalize(run_id)
-
-    task = asyncio.create_task(_wrapped())
-    await _safe_update_run(run_id, task=task, status="finalize_queued")
-    return {"run_id": run_id, "status": "finalize_queued"}
 
 
 @app.get("/runs/{run_id}/status")
@@ -362,27 +346,78 @@ async def get_status(run_id: str):
     return JSONResponse(info)
 
 
-@app.get("/runs/{run_id}/outputs")
-async def list_outputs(run_id: str):
+
+
+
+@app.post("/runs/{run_id}/finalize_full", status_code=202)
+async def finalize_full(run_id: str):
+    """
+    Combined endpoint:
+    1. Runs dedupe, sorting, export (finalize stage)
+    2. Returns list of output files
+    3. Returns Excel file if generated
+    """
     meta = await _safe_get_run(run_id)
     if not meta:
         raise HTTPException(404, "run_id not found")
-    outputs = Path(meta["run_dir"]) / "outputs"
-    if not outputs.exists():
-        return {"outputs": []}
-    files = [str(p.relative_to(meta["run_dir"])) for p in outputs.rglob("*") if p.is_file()]
-    return {"outputs": files}
+
+    async def _wrapped():
+        async with _PIPELINE_SEMAPHORE:
+            await _async_run_finalize(run_id)
+
+    # schedule finalize
+    task = asyncio.create_task(_wrapped())
+    await _safe_update_run(run_id, task=task, status="finalize_queued")
+
+    # await completion
+    try:
+        await task
+    except asyncio.CancelledError:
+        raise HTTPException(500, "finalize cancelled")
+
+    # refresh metadata
+    meta = await _safe_get_run(run_id)
+
+    # collect outputs
+    outputs_dir = Path(meta["run_dir"]) / "outputs"
+    output_files = []
+    if outputs_dir.exists():
+        output_files = [
+            str(p.relative_to(meta["run_dir"]))
+            for p in outputs_dir.rglob("*") if p.is_file()
+        ]
+
+    # check excel
+    excel_path = outputs_dir / "final_leads_list.xlsx"
+    excel_available = excel_path.exists()
+
+    return {
+        "run_id": run_id,
+        "status": meta["status"],
+        "error": meta.get("error"),
+        "outputs": output_files,
+        "excel_available": excel_available,
+    }
 
 
-@app.get("/runs/{run_id}/download/excel")
-async def download_excel(run_id: str):
+@app.get("/runs/{run_id}/finalize_full/download_excel")
+async def finalize_full_download_excel(run_id: str):
+    """
+    Companion endpoint for downloading Excel after finalize_full response indicates availability.
+    """
     meta = await _safe_get_run(run_id)
     if not meta:
         raise HTTPException(404, "run_id not found")
+
     excel = Path(meta["run_dir"]) / "outputs" / "final_leads_list.xlsx"
     if not excel.exists():
         raise HTTPException(404, "excel not found")
-    return FileResponse(str(excel), filename=excel.name, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+    return FileResponse(
+        str(excel),
+        filename=excel.name,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
 
 
 @app.delete("/runs/{run_id}")
