@@ -8,8 +8,8 @@ import pandas as pd
 # -------------------------------------------------------------
 # Config
 # -------------------------------------------------------------
-# API_URL = "https://leadfoundry-ai-vdkm.onrender.com"
-API_URL = "http://127.0.0.1:8000"
+API_URL = "https://leadfoundry-ai-vdkm.onrender.com"
+# API_URL = "http://127.0.0.1:8000"
 REQUEST_TIMEOUT = 900
 
 st.set_page_config(page_title="LeadFoundry AI", page_icon="🧲", layout="wide")
@@ -321,6 +321,7 @@ elif st.session_state.view == "results":
 
 
     if st.button("🔄 Start New Search", use_container_width=True):
+        st.session_state.clear()
         st.session_state.run_id = None
         st.session_state.finalize_response = None
         st.session_state.view = "create_profile"
