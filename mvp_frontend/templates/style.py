@@ -1,3 +1,4 @@
+LF_STYLE = """
 /* ================================================================
    LeadFoundry UI THEME – OPTION 1: MOLTEN METAL
    Industrial forged metal aesthetic with molten highlights
@@ -38,16 +39,12 @@ body::before {
     font-size: 2.6rem;
     font-weight: 800;
     background: linear-gradient(90deg, #FFE9C7 0%, #FFB341 40%, #FF8A3D 100%);
-
-    /* FULL cross-browser background clip */
     background-clip: text;
     -webkit-background-clip: text;
     -moz-background-clip: text;
-
     color: transparent;
     margin-top: 0.2rem;
 }
-
 
 .lf-hero-tagline {
     font-size: 1.15rem;
@@ -91,14 +88,12 @@ body::before {
     border: 1px solid transparent;
 }
 
-/* Completed = Forged Metal Greenish-Zinc */
 .lf-step-done {
     background-color: rgba(191,198,209,0.18);
     border-color: rgba(191,198,209,0.4);
     color: #D6D7DA;
 }
 
-/* Active = Molten core gradient */
 .lf-step-active {
     background: linear-gradient(90deg, #FF8A3D 0%, #FFB341 100%);
     border-color: #FFB341;
@@ -106,7 +101,6 @@ body::before {
     font-weight: 700;
 }
 
-/* Upcoming = Dark metal */
 .lf-step-upcoming {
     background-color: rgba(255,255,255,0.05);
     border-color: rgba(255,255,255,0.12);
@@ -162,8 +156,6 @@ button[kind="primary"] {
     filter: brightness(0.85) !important;
 }
 
-
-/* Secondary buttons */
 button[kind="secondary"] {
     background: #3A3F45 !important;
     border: 1px solid #6A7077 !important;
@@ -259,3 +251,4 @@ section[data-testid="stSidebar"] * {
 .lf-space-sm { margin-top: 0.4rem; }
 .lf-space-md { margin-top: 0.8rem; }
 .lf-space-lg { margin-top: 1.2rem; }
+"""

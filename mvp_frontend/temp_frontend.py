@@ -3,7 +3,9 @@ import requests
 import time
 from pathlib import Path
 from templates.spinner import render_spinning_status
+from templates.style import LF_STYLE
 import pandas as pd
+from io import BytesIO
 
 # -------------------------------------------------------------
 # Config
@@ -14,12 +16,8 @@ REQUEST_TIMEOUT = 900
 
 st.set_page_config(page_title="LeadFoundry AI", page_icon="🧲", layout="wide")
 
-# -------------------------------------------------------------
-# Global CSS
-# -------------------------------------------------------------
-css_path = Path("mvp_frontend/templates/style.css")
-if css_path.exists():
-    st.markdown(f"<style>{css_path.read_text()}</style>", unsafe_allow_html=True)
+# Load inline CSS AFTER page config
+st.markdown(f"<style>{LF_STYLE}</style>", unsafe_allow_html=True)
 
 # -------------------------------------------------------------
 # Session State
@@ -45,8 +43,8 @@ def api_request(method, path, **kwargs):
     except Exception as e:
         return 500, {"error": str(e)}
 
-api_post   = lambda p, json=None: api_request("post", p, json=json)
-api_get    = lambda p: api_request("get", p)
+api_post = lambda p, json=None: api_request("post", p, json=json)
+api_get = lambda p: api_request("get", p)
 api_delete = lambda p: api_request("delete", p)
 
 # -------------------------------------------------------------
@@ -57,11 +55,11 @@ STATUS_LABELS = {
     "intake_queued": "📥 Intake queued",
     "intake_running": "📥 Intake running",
     "intake_completed": "✅ Intake complete",
-    "research_queued": "🔍 Research queued",
-    "research_running": "🔍 Research running",
+    "research_queued": "Research queued",
+    "research_running": "Research running",
     "research_completed": "🎉 Research complete",
-    "finalize_queued": "🧹 Finalize queued",
-    "finalize_running": "🧹 Finalize running",
+    "finalize_queued": "Finalize queued",
+    "finalize_running": "Finalize running",
     "finalize_completed": "🎉 Complete",
     "intake_failed": "❌ Intake failed",
     "research_failed": "❌ Research failed",
@@ -72,7 +70,7 @@ STATUS_LABELS = {
 interpret = lambda s: STATUS_LABELS.get(s, s)
 
 # -------------------------------------------------------------
-# Polling loop (smooth version)
+# Polling loop
 # -------------------------------------------------------------
 def poll_until(run_id, target_status, fail_status, stage_name):
     TIMEOUT = 900
@@ -85,15 +83,14 @@ def poll_until(run_id, target_status, fail_status, stage_name):
     start = time.time()
 
     while True:
-
         code, data = api_get(f"/runs/{run_id}/status")
         status = data.get("status", "")
 
         if status != last_status:
-            if not (status.endswith("_running") or status.endswith("_queued")):
+            if not status.endswith("_running") and not status.endswith("_queued"):
                 status_box.markdown(
                     f"<div class='status-bar'>{interpret(status)}</div>",
-                    unsafe_allow_html=True
+                    unsafe_allow_html=True,
                 )
             last_status = status
 
@@ -103,7 +100,7 @@ def poll_until(run_id, target_status, fail_status, stage_name):
 
         if status == fail_status:
             spinner_box.empty()
-            st.error(f"❌ {interpret(status)}")
+            st.error(f"{interpret(status)}")
             return data
 
         if status.endswith("_running") or status.endswith("_queued"):
@@ -121,7 +118,7 @@ def poll_until(run_id, target_status, fail_status, stage_name):
 # -------------------------------------------------------------
 st.sidebar.markdown("### 🧲 LeadFoundry AI")
 st.sidebar.caption("Agentic lead generation pipeline")
-st.sidebar.markdown("---")
+st.sidebar.divider()
 
 PIPELINE = ["Profile Intake", "Lead Search", "Optimize", "Download"]
 view_map = {
@@ -136,15 +133,18 @@ active = view_map.get(st.session_state.view, 0)
 
 for idx, label in enumerate(PIPELINE):
     if idx == active:
-        css = "lf-step-chip lf-step-active"; icon = "🟢"
+        css = "lf-step-chip lf-step-active"
+        icon = "🟢"
     elif idx < active:
-        css = "lf-step-chip lf-step-done"; icon = "✅"
+        css = "lf-step-chip lf-step-done"
+        icon = "✅"
     else:
-        css = "lf-step-chip lf-step-upcoming"; icon = "⚪"
+        css = "lf-step-chip lf-step-upcoming"
+        icon = "⚪"
 
     st.sidebar.markdown(
         f'<div class="{css}">{icon} <span>{label}</span></div>',
-        unsafe_allow_html=True
+        unsafe_allow_html=True,
     )
 
 # -------------------------------------------------------------
@@ -153,19 +153,18 @@ for idx, label in enumerate(PIPELINE):
 st.markdown('<div class="lf-hero-title">🧲 LeadFoundry AI</div>', unsafe_allow_html=True)
 st.markdown(
     '<div class="lf-hero-tagline">Find qualified leads using intelligent agent teams.</div>',
-    unsafe_allow_html=True
+    unsafe_allow_html=True,
 )
-st.markdown("<br><br>", unsafe_allow_html=True)
+st.markdown("<br>", unsafe_allow_html=True)
 
 # -------------------------------------------------------------
 # VIEW: CREATE PROFILE
 # -------------------------------------------------------------
 if st.session_state.view == "create_profile":
 
-    st.markdown('<div class="lf-section-title">📥 Create Lead Search Profile</div>', unsafe_allow_html=True)
+    st.markdown('<div class="lf-section-title">Create Lead Search Profile</div>', unsafe_allow_html=True)
 
     with st.form("form"):
-
         col1, col2 = st.columns(2)
         with col1:
             project = st.text_input("Project Name", "college workshops")
@@ -188,7 +187,7 @@ if st.session_state.view == "create_profile":
         with col2:
             required_fields = st.text_input("Required Fields", "email, phone")
 
-        submit = st.form_submit_button("🚀 Launch Lead Intake", use_container_width=True)
+        submit = st.form_submit_button("Launch Lead Intake", use_container_width=True)
 
     if submit:
         payload = {
@@ -220,7 +219,7 @@ if st.session_state.view == "create_profile":
             st.session_state.view = "intake_processing"
             st.rerun()
         else:
-            st.error(f"❌ Failed to create run: {data}")
+            st.error(f"Failed to create run: {data}")
 
 # -------------------------------------------------------------
 # VIEW: INTAKE PROCESSING
@@ -230,10 +229,9 @@ elif st.session_state.view == "intake_processing":
     run_id = st.session_state.run_id
 
     poll_until(run_id, "intake_completed", "intake_failed", "intake")
-
     st.success("Intake completed.")
 
-    if st.button("🔍 Start Lead Research", type="primary", use_container_width=True):
+    if st.button("Start Lead Research", type="primary", use_container_width=True):
         api_post(f"/runs/{run_id}/research")
         st.session_state.view = "research_processing"
         st.rerun()
@@ -246,10 +244,9 @@ elif st.session_state.view == "research_processing":
     run_id = st.session_state.run_id
 
     poll_until(run_id, "research_completed", "research_failed", "research")
-
     st.success("Research completed.")
 
-    if st.button("🧹 De-duplicate Sort & Generate Excel", type="primary", use_container_width=True):
+    if st.button("De-duplicate Sort & Generate Excel", type="primary", use_container_width=True):
         code, data = api_post(f"/runs/{run_id}/finalize_full")
         if code in (200, 202):
             st.session_state.finalize_response = data
@@ -263,67 +260,51 @@ elif st.session_state.view == "research_processing":
 # -------------------------------------------------------------
 elif st.session_state.view == "results":
 
-    st.markdown('<div class="lf-section-title">🎉 Results & Download</div>', unsafe_allow_html=True)
+    st.markdown('<div class="lf-section-title">Results & Download</div>', unsafe_allow_html=True)
 
     run_id = st.session_state.run_id
-    data = st.session_state.finalize_response if st.session_state.finalize_response is not None else {}
+    data = st.session_state.finalize_response or {}
 
-    # -------------------------
-    # EXCEL PREVIEW + DOWNLOAD
-    # -------------------------
     st.markdown("### Preview of Leads (first 20 rows)")
 
     excel_url = f"{API_URL}/runs/{run_id}/finalize_full/download_excel"
     excel_available = data.get("excel_available", False)
 
     if excel_available:
-
         r = requests.get(excel_url)
 
         if r.status_code == 200:
-            st.success("📥 Excel ready for preview & download!")
+            st.success("Excel ready for preview and download!")
 
-            # -------- Preview Excel --------
             try:
-                import pandas as pd
-                from io import BytesIO
-
                 excel_bytes = BytesIO(r.content)
                 df = pd.read_excel(excel_bytes)
 
                 if isinstance(df, pd.DataFrame) and len(df) > 0:
                     max_rows = min(20, len(df))
                     st.dataframe(df.head(max_rows), use_container_width=True)
-                    st.caption(f"Showing {max_rows} of {len(df)} rows from Excel")
+                    st.caption(f"Showing {max_rows} of {len(df)} rows")
                 else:
                     st.info("Excel file is empty.")
 
             except Exception as e:
                 st.warning(f"Could not preview Excel: {e}")
 
-            # -------- Download Button --------
             st.download_button(
                 "Download Excel",
                 data=r.content,
                 file_name="leadfoundry_leads.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True,
-                type="primary"
+                type="primary",
             )
-
         else:
             st.error("Excel not found or not accessible.")
-
     else:
         st.warning("Excel not ready yet.")
 
-
-
-
-    if st.button("🔄 Start New Search", use_container_width=True):
+    if st.button("Start New Search", use_container_width=True):
         st.session_state.clear()
-        st.session_state.run_id = None
-        st.session_state.finalize_response = None
         st.session_state.view = "create_profile"
         st.rerun()
 
@@ -331,10 +312,9 @@ elif st.session_state.view == "results":
 # Danger zone
 # -------------------------------------------------------------
 if st.session_state.view != "create_profile" and st.session_state.run_id:
-    with st.expander("⚠️ Danger Zone"):
-        if st.button("❌ Cancel Run & Reset Pipeline", use_container_width=True):
+    with st.expander("Danger Zone"):
+        if st.button("Cancel Run & Reset Pipeline", use_container_width=True):
             api_delete(f"/runs/{st.session_state.run_id}")
-            st.session_state.run_id = None
-            st.session_state.finalize_response = None
+            st.session_state.clear()
             st.session_state.view = "create_profile"
             st.rerun()
