@@ -11,8 +11,8 @@ from io import BytesIO
 # Config
 # -------------------------------------------------------------
 # API_URL = "https://leadfoundry-ai-vdkm.onrender.com"
-API_URL = "http://127.0.0.1:8000"
-REQUEST_TIMEOUT = 900
+# API_URL = "http://127.0.0.1:8000"
+REQUEST_TIMEOUT = 1200
 
 st.set_page_config(page_title="LeadFoundry AI", page_icon="🧲", layout="wide")
 
