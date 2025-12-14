@@ -1,5 +1,6 @@
 """
 LeadFoundry spinner messages – Molten Metal Theme
+Option 1: Normalize composite step names to known stages
 """
 
 _SPINNER_MESSAGES = {
@@ -14,14 +15,33 @@ _SPINNER_MESSAGES = {
     "finalize": (
         "🧹 Refining and Casting Final Lead List",
         "Deduping, ranking, sorting and exporting your finished Excel output."
-    )
+    ),
 }
+
+def _normalize_step(step: str) -> str:
+    """
+    Normalize composite or verbose step names to canonical stages.
+    This prevents fallback to 'Working… Processing your request.'
+    """
+    step = step.lower()
+
+    if "intake" in step:
+        return "intake"
+    if "research" in step:
+        return "research"
+    if "final" in step or "optimize" in step:
+        return "finalize"
+
+    return step
+
 
 def render_spinning_status(html_placeholder, progress_placeholder, step, progress_fraction):
     """Render step-specific forge-style spinner using HTML/CSS for LeadFoundry."""
     
-    if step in _SPINNER_MESSAGES:
-        title, subtitle = _SPINNER_MESSAGES[step]
+    normalized_step = _normalize_step(step)
+
+    if normalized_step in _SPINNER_MESSAGES:
+        title, subtitle = _SPINNER_MESSAGES[normalized_step]
     else:
         title, subtitle = "⏳ Working…", "Processing your request."
     
@@ -45,7 +65,7 @@ def render_spinning_status(html_placeholder, progress_placeholder, step, progres
         border-radius:14px;
         box-shadow:0 12px 30px {forge_shadow};
         margin:1.2rem 0;
-        border:1px solid rgba(255,138,61,0.25); /* molten highlight */
+        border:1px solid rgba(255,138,61,0.25);
     }}
     .spinner {{
         border:4px solid rgba(255,255,255,0.12);

@@ -133,7 +133,7 @@ class LeadList(BaseModel):
 # ---------------------------------------------------------------------
 try:
     DEFAULT_MCP_SERVERS = researcher_mcp_stdio_servers(
-        client_session_timeout_seconds=120
+        client_session_timeout_seconds=90 ####
     )
 except Exception:
     logger.exception("Failed to initialize MCP servers")

@@ -244,52 +244,10 @@ async def _async_run_research(run_id: str):
     await _write_progress(meta["run_dir"], "research", {"status": "completed"})
     logger.info("Research completed for run %s, starting auto-finalization for email delivery to %s", run_id, email)
     
-    # Auto-finalize and send email
+    # Auto-finalize (email will be sent inside finalize stage)
     try:
-        # Run finalization
         async with _PIPELINE_SEMAPHORE:
             await _async_run_finalize(run_id)
-        
-        # Check finalization status
-        updated_meta = await _safe_get_run(run_id)
-        if not updated_meta:
-            logger.error("Run metadata not found after finalization for run %s", run_id)
-            return
-        
-        if updated_meta.get("status") == "finalize_failed":
-            logger.error("Finalization failed for run %s, skipping email", run_id)
-            await _safe_update_run(run_id, email_sent=False, email_error="Finalization failed")
-            return
-        
-        # Check if Excel file exists
-        excel_path = Path(meta["config"].excel_out_path)
-        if not excel_path.exists():
-            logger.error("Excel file not found at %s for run %s", excel_path, run_id)
-            await _safe_update_run(run_id, email_sent=False, email_error="Excel file not generated")
-            return
-        
-        # Send email
-        try:
-            await asyncio.to_thread(
-                send_lead_notification,
-                email,
-                "Your LeadFoundry AI Results",
-                "<p>Your leads are ready. Please find the Excel attached.</p>",
-                str(excel_path),
-            )
-            logger.info("=" * 70)
-            logger.info("✅ Email sent successfully to %s for run %s", email, run_id)
-            logger.info("=" * 70)
-            await _safe_update_run(run_id, email_sent=True, email_sent_to=email)
-            
-        except Exception as email_error:
-            logger.exception("Failed to send email for run %s to %s", run_id, email)
-            await _safe_update_run(
-                run_id, 
-                email_sent=False, 
-                email_error=f"Email delivery failed: {str(email_error)}"
-            )
-            
     except Exception as finalize_error:
         logger.exception("Auto-finalization failed for run %s", run_id)
         await _safe_update_run(
@@ -312,12 +270,57 @@ async def _async_run_finalize(run_id: str):
     await _write_progress(meta["run_dir"], "finalize", {"status": "started"})
 
     try:
+        # Run finalization pipeline
         await _maybe_awaitable_call(run_deduplication, cfg, metrics)
         await _maybe_awaitable_call(run_sorting, cfg, metrics)
         await _maybe_awaitable_call(run_export_to_excel, cfg, metrics)
+        
         await _safe_update_run(run_id, status="finalize_completed")
         await _write_progress(meta["run_dir"], "finalize", {"status": "completed"})
         logger.info("Finalization completed for run %s", run_id)
+        
+        # ========================================================
+        # EMAIL SENDING - MOVED INTO FINALIZE STAGE
+        # ========================================================
+        email = meta.get("email")
+        if email:
+            # Check if email already sent (idempotency for duplicate calls)
+            if meta.get("email_sent"):
+                logger.info("Email already sent for run %s, skipping", run_id)
+                return
+            
+            logger.info("📧 Preparing to send email to %s for run %s", email, run_id)
+            
+            # Check if Excel file exists
+            excel_path = Path(cfg.excel_out_path)
+            if not excel_path.exists():
+                logger.error("Excel file not found at %s for run %s", excel_path, run_id)
+                await _safe_update_run(run_id, email_sent=False, email_error="Excel file not generated")
+                return
+            
+            # Send email
+            try:
+                logger.info("📧 Sending email to %s with attachment %s", email, excel_path)
+                await asyncio.to_thread(
+                    send_lead_notification,
+                    email,
+                    "Your LeadFoundry AI Results",
+                    "<p>Your leads are ready. Please find the Excel attached.</p>",
+                    str(excel_path),
+                )
+                logger.info("=" * 70)
+                logger.info("✅ Email sent successfully to %s for run %s", email, run_id)
+                logger.info("=" * 70)
+                await _safe_update_run(run_id, email_sent=True, email_sent_to=email)
+                
+            except Exception as email_error:
+                logger.exception("❌ Failed to send email for run %s to %s", run_id, email)
+                await _safe_update_run(
+                    run_id, 
+                    email_sent=False, 
+                    email_error=f"Email delivery failed: {str(email_error)}"
+                )
+        
     except Exception as e:
         await _safe_update_run(run_id, status="finalize_failed", error=str(e))
         logger.exception("Finalization failed for run %s", run_id)
