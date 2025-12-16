@@ -8,8 +8,8 @@ import pandas as pd
 from io import BytesIO
 
 # API_URL = "https://leadfoundry-ai-vdkm.onrender.com"
-# API_URL = "https://leadfoundry-ai-vdkm-846645990850.asia-south1.run.app"
-API_URL = "http://127.0.0.1:8000"
+API_URL = "https://leadfoundry-ai-vdkm-846645990850.asia-south1.run.app"
+# API_URL = "http://127.0.0.1:8000"
 REQUEST_TIMEOUT = 1200
 
 INTAKE_TIMEOUT = 120
