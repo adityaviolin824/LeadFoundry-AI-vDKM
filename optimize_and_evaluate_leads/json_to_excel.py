@@ -3,16 +3,35 @@ from pathlib import Path
 import json
 from typing import Any, Dict, List
 import pandas as pd
+import re
 
 FALLBACK_JSON = Path("outputs/lead_list_sorted.json")
 FALLBACK_XLSX = Path("outputs/final_leads_list.xlsx")
+
+# ============================================================
+# Excel-safe sanitization (HARD GUARANTEE)
+# ============================================================
+
+_ILLEGAL_EXCEL_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
+
+def sanitize_for_excel(value: Any) -> Any:
+    """
+    Removes all characters that Excel / openpyxl cannot handle.
+    Safe for strings, lists, dicts, numbers, None.
+    """
+    if isinstance(value, str):
+        return _ILLEGAL_EXCEL_CHARS.sub("", value)
+    if isinstance(value, list):
+        return [sanitize_for_excel(v) for v in value]
+    if isinstance(value, dict):
+        return {k: sanitize_for_excel(v) for k, v in value.items()}
+    return value
 
 
 def leads_json_to_excel_preserve(
     input_path: Path,
     excel_path: Path,
 ) -> None:
-
 
     if excel_path is None:
         excel_path = FALLBACK_XLSX
@@ -30,6 +49,9 @@ def leads_json_to_excel_preserve(
 
     with input_path.open("r", encoding="utf-8") as f:
         loaded = json.load(f)
+
+    # 🔒 sanitize immediately after load
+    loaded = sanitize_for_excel(loaded)
 
     if isinstance(loaded, dict) and "leads" in loaded:
         items = loaded["leads"]
@@ -69,7 +91,8 @@ def leads_json_to_excel_preserve(
         for k in it.keys():
             all_keys.add(k)
 
-        rows.append(row)
+        # 🔒 final row-level sanitation
+        rows.append(sanitize_for_excel(row))
 
     preferred = [
         "company",
@@ -82,6 +105,10 @@ def leads_json_to_excel_preserve(
     ordered = preferred + [k for k in sorted(all_keys) if k not in preferred]
 
     df = pd.DataFrame(rows, columns=ordered)
+
+    # 🔒 sanitize dataframe values one last time
+    df = df.applymap(sanitize_for_excel)
+
     df.to_excel(excel_path, index=False, engine="openpyxl")
 
     try:
