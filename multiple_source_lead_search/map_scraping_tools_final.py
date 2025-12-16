@@ -55,6 +55,8 @@ def _geocode(location: str) -> Dict[str, Any]:
         logger.error("Geocoding failed for location='%s': %s", location, str(e))
         return {}
 
+
+
 # -------------------------------------------------------------------------
 # SERPAPI LEAD SEARCH (PRIMARY TOOL)
 # -------------------------------------------------------------------------
@@ -67,7 +69,8 @@ def serpapi_lead_search(
 ) -> Dict[str, Any]:
     """
     Lead search using SerpAPI Google Maps.
-    Fully safe and LLM-friendly.
+    Optimized for first-pass discovery with contact bias.
+    Safe, deterministic, and backward-compatible.
     """
 
     if not business_type or not location:
@@ -76,42 +79,79 @@ def serpapi_lead_search(
     if not SERPAPI_API_KEY:
         return {"success": False, "error": "SERPAPI_API_KEY not configured"}
 
+    # ------------------------------
+    # 1. Best-effort geocoding
+    # ------------------------------
     geo = _geocode(location)
-    if not geo:
-        return {"success": False, "error": f"Could not geocode: {location}"}
+
+    # ------------------------------
+    # 2. Adaptive zoom (safe heuristic)
+    # ------------------------------
+    zoom = "11z"  # default city-level
+    if geo:
+        formatted = (geo.get("formatted_address") or "").lower()
+        if any(x in formatted for x in ["india", "state", "province", "region"]):
+            zoom = "7z"
+        elif any(x in formatted for x in ["district", "county"]):
+            zoom = "9z"
+
+    # ------------------------------
+    # 3. Entity-biased query framing
+    # ------------------------------
+    query = business_type.strip().lower()
 
     params = {
         "engine": "google_maps",
-        "q": business_type,
-        "ll": f"@{geo['lat']},{geo['lon']},11z",
+        "q": query,
         "api_key": SERPAPI_API_KEY,
     }
 
-    logger.info("Calling SerpAPI for '%s' near '%s'", business_type, location)
+    # Only add ll if geocoding succeeded
+    if geo and geo.get("lat") and geo.get("lon"):
+        params["ll"] = f"@{geo['lat']},{geo['lon']},{zoom}"
+
+    logger.info(
+        "Calling SerpAPI Maps for query='%s' location='%s' zoom='%s'",
+        query,
+        location,
+        zoom,
+    )
 
     try:
-        r = requests.get("https://serpapi.com/search.json", params=params, timeout=TIMEOUT)
+        r = requests.get(
+            "https://serpapi.com/search.json",
+            params=params,
+            timeout=TIMEOUT,
+        )
         r.raise_for_status()
         data = r.json()
     except Exception as e:
         logger.error("SerpAPI request failed: %s", str(e))
         return {"success": False, "error": str(e)}
 
-    raw = data.get("local_results", []) or data.get("place_results", [])
+    raw = data.get("local_results") or data.get("place_results") or []
     leads = []
 
     for p in raw[:max_results]:
-        coords = p.get("gps_coordinates", {})
+        coords = p.get("gps_coordinates", {}) or {}
+
+        phone = p.get("phone")
+        website = p.get("website")
+
         leads.append({
             "name": p.get("title") or p.get("name"),
             "address": p.get("address"),
-            "phone": p.get("phone"),
-            "website": p.get("website"),
+            "phone": phone,
+            "website": website,
             "rating": p.get("rating"),
             "reviews": p.get("reviews"),
             "type": p.get("type"),
             "latitude": coords.get("latitude"),
             "longitude": coords.get("longitude"),
+
+            "has_phone": bool(phone),
+            "has_website": bool(website),
+
             "raw": p,
         })
 
@@ -121,10 +161,17 @@ def serpapi_lead_search(
     return {
         "success": True,
         "source": "serpapi",
-        "location_info": geo,
+        "query": query,
+        "location_info": geo or {"input_location": location},
         "leads": leads,
         "count": len(leads),
     }
+
+
+
+
+
+
 
 # -------------------------------------------------------------------------
 # GMAPS EXTRACTOR LEAD SEARCH (OPTIONAL)

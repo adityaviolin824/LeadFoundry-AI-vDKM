@@ -1,9 +1,7 @@
 .env
 __pycache__/
-.gradio/
-cv-model/
-00-debugging/
 logs/
-00-DEBUGGING/
 runs/
 testing/
+dummy/
+outputs/

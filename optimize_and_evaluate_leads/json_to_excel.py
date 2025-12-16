@@ -4,41 +4,33 @@ import json
 from typing import Any, Dict, List
 import pandas as pd
 
-# Fallback paths
 FALLBACK_JSON = Path("outputs/lead_list_sorted.json")
 FALLBACK_XLSX = Path("outputs/final_leads_list.xlsx")
 
 
 def leads_json_to_excel_preserve(
-    input_path: str = None,
-    data: Dict[str, Any] = None,
-    excel_path: str = None,
+    input_path: Path,
+    excel_path: Path,
 ) -> None:
-    """
-    Preserve all fields exactly as supplied:
-      - No mutation of strings
-      - URLs remain URLs
-      - Phone numbers and emails stored as text
-      - Each source URL becomes a clickable hyperlink column
-    """
 
-    # Use fallback output path if none provided
+
     if excel_path is None:
         excel_path = FALLBACK_XLSX
 
-    # Load JSON from file or dict
     if input_path is None:
-        # Fallback input path
         input_path = FALLBACK_JSON
 
-    p = Path(input_path)
-    if not p.exists():
+    excel_path = Path(excel_path)
+    input_path = Path(input_path)
+
+    if not input_path.exists():
         raise FileNotFoundError(f"Input file not found: {input_path}")
 
-    with p.open("r", encoding="utf-8") as f:
+    excel_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with input_path.open("r", encoding="utf-8") as f:
         loaded = json.load(f)
 
-    # Extract list of lead objects
     if isinstance(loaded, dict) and "leads" in loaded:
         items = loaded["leads"]
     elif isinstance(loaded, list):
@@ -46,10 +38,8 @@ def leads_json_to_excel_preserve(
     else:
         items = [loaded]
 
-    # Ensure dict rows
     items = [it if isinstance(it, dict) else {} for it in items]
 
-    # Determine max number of source URLs to give each its own column
     max_src = 0
     for it in items:
         v = it.get("source_urls", [])
@@ -62,7 +52,6 @@ def leads_json_to_excel_preserve(
     for it in items:
         row = dict(it)
 
-        # Expand source_urls into source_url_1, source_url_2 ...
         srcs = it.get("source_urls", [])
         if not isinstance(srcs, list):
             srcs = [] if srcs is None else [srcs]
@@ -72,19 +61,16 @@ def leads_json_to_excel_preserve(
             row[col] = srcs[i] if i < len(srcs) else ""
             all_keys.add(col)
 
-        # Ensure expected keys exist
         for k in ("company", "website", "mail", "phone_number", "location", "description"):
             all_keys.add(k)
             if k not in row:
                 row[k] = ""
 
-        # Add any extra dynamic keys
         for k in it.keys():
             all_keys.add(k)
 
         rows.append(row)
 
-    # Column ordering
     preferred = [
         "company",
         "website",
@@ -95,13 +81,9 @@ def leads_json_to_excel_preserve(
     ]
     ordered = preferred + [k for k in sorted(all_keys) if k not in preferred]
 
-    # Build DataFrame
     df = pd.DataFrame(rows, columns=ordered)
-
-    # Write initial Excel
     df.to_excel(excel_path, index=False, engine="openpyxl")
 
-    # Post-process hyperlinks and text formatting
     try:
         from openpyxl import load_workbook
         from openpyxl.utils import get_column_letter
@@ -123,29 +105,27 @@ def leads_json_to_excel_preserve(
                     cell.style = "Hyperlink"
             cell.number_format = "@"
 
-        # Apply formatting row by row
         for r in range(2, ws.max_row + 1):
-            # Website
             if "website" in headers:
                 set_hyperlink(r, headers["website"])
-            # Phone, mail as text
+
             if "phone_number" in headers:
                 c = ws.cell(row=r, column=headers["phone_number"])
                 if c.value is not None:
                     c.value = str(c.value)
                 c.number_format = "@"
+
             if "mail" in headers:
                 c = ws.cell(row=r, column=headers["mail"])
                 if c.value is not None:
                     c.value = str(c.value)
                 c.number_format = "@"
-            # source_url columns
+
             for i in range(1, max_src + 1):
                 colname = f"source_url_{i}"
                 if colname in headers:
                     set_hyperlink(r, headers[colname])
 
-        # Resize columns
         for col in range(1, ws.max_column + 1):
             col_letter = get_column_letter(col)
             max_len = 0

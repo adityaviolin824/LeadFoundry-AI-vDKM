@@ -169,8 +169,10 @@ def consolidate_and_save(all_leads: List[Dict[str, Any]], json_path: str, *, mak
 def run_all_agents_sync(query: str, json_path: str) -> None:
     asyncio.run(run_all_agents(query, json_path))
 
-
+####################################################################
 async def run_all_agents(query: str, json_path: str) -> None:
+
+
     agent_creators = [
         ("linkedin", create_linkedin_search_agent),
         ("facebook", create_facebook_search_agent),
@@ -199,3 +201,33 @@ async def run_all_agents(query: str, json_path: str) -> None:
             all_leads.append({"agent": name, "error": str(e)})
 
     consolidate_and_save(all_leads, json_path)
+
+    ################## DUMMY FOR EXPERIMENTATION ########################
+    # shutil.copy2("dummy/lead_list_consolidated.json", json_path) 
+#########################################################################
+
+
+
+
+if __name__ == "__main__":
+
+    logging.basicConfig(level=logging.INFO)
+
+
+    TEST_QUERY = "drone inspection maharashtra"
+    OUTPUT_JSON = "dummy/lead_list_consolidated_experimental.json"
+
+    Path(OUTPUT_JSON).parent.mkdir(parents=True, exist_ok=True)
+
+    logger.info("Starting local LeadFoundry agent run")
+    logger.info("Query: %s", TEST_QUERY)
+    logger.info("Output: %s", OUTPUT_JSON)
+
+    try:
+        run_all_agents_sync(
+            query=TEST_QUERY,
+            json_path=OUTPUT_JSON,
+        )
+        logger.info("Local agent run completed successfully")
+    except Exception as e:
+        logger.exception("Local agent run failed: %s", e)

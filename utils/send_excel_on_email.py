@@ -11,8 +11,6 @@ load_dotenv()
 
 def send_lead_notification(
     recipient_email: str,
-    subject: str,
-    html_content: str,
     excel_path: str | None = None,
 ):
     sender_email = os.getenv("EMAIL_SENDER")
@@ -21,8 +19,39 @@ def send_lead_notification(
     display_name = "LeadFoundry AI"
 
     if not sender_email or not app_password:
-        print("❌ Error: Missing credentials in .env file")
+        print("Error: Missing credentials in .env file")
         return False
+
+    subject = "LeadFoundry Run Complete — Results Attached"
+
+    html_content = """
+    <html>
+    <body style="font-family: Arial, Helvetica, sans-serif; line-height: 1.6;">
+        <p>Hello,</p>
+
+        <p>
+        Your LeadFoundry run has completed successfully.
+        </p>
+
+        <p>
+        The attached Excel file contains the finalized output — consolidated,
+        deduplicated, and sorted for immediate use.
+        </p>
+
+        <p>
+        If you’d like to adjust inputs, refine filters, or run a new search,
+        you can start another run anytime.
+        </p>
+
+        <p style="margin-top: 24px;">
+        <strong>LeadFoundry</strong><br>
+        <span style="color: #666;">
+            Built to extract signal from noisy markets.
+        </span>
+        </p>
+    </body>
+    </html>
+    """
 
     try:
         msg = MIMEMultipart()
@@ -33,7 +62,9 @@ def send_lead_notification(
         excel_attached = False
         excel_error_note = ""
 
-        # Attempt Excel attachment if path provided
+        # =========================
+        # Attach Excel if available
+        # =========================
         if excel_path:
             try:
                 if not os.path.exists(excel_path):
@@ -57,13 +88,14 @@ def send_lead_notification(
             except Exception as e:
                 excel_error_note = (
                     "<hr>"
-                    "<p><b>⚠️ Note:</b> We encountered an unexpected issue while "
-                    "generating or attaching the Excel file for this run.</p>"
-                    "<p>The lead generation completed, but the spreadsheet could not be attached.</p>"
+                    "<p><b>⚠️ Note:</b> The lead generation completed successfully, "
+                    "but the Excel file could not be attached for this run.</p>"
                 )
                 print(f"⚠️ Excel attachment skipped: {e}")
 
-        # HTML body (always sent)
+        # =========================
+        # Final email body
+        # =========================
         final_html = html_content
         if not excel_attached and excel_path:
             final_html += excel_error_note
@@ -75,7 +107,7 @@ def send_lead_notification(
         server.send_message(msg)
         server.quit()
 
-        print(f"✅ Email sent to {recipient_email} from {display_name}")
+        print(f"Email sent to {recipient_email} from {display_name}")
         return True
 
     except Exception as e:

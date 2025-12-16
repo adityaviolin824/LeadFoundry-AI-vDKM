@@ -8,18 +8,6 @@ logger = logging.getLogger(__name__)
 
 
 def error_message_details(error: Any, error_detail: Optional[object] = None) -> str:
-    """
-    Build a one-line error message containing filename, line number, and the error string.
-
-    Backwards-compatible behavior:
-      - If error_detail is None, we default to the sys module internally.
-      - If a caller passes the sys module (legacy pattern), we still accept it.
-    Logic:
-      1. Prefer traceback attached to the exception (error.__traceback__).
-      2. Fallback to error_detail.exc_info() if provided/available.
-      3. Extract the last traceback frame and return:
-         "Error occured in python script name [<file>] line number [<lineno>] error message[<error>]"
-    """
     try:
         ed = error_detail if error_detail is not None else sys
 
@@ -62,25 +50,6 @@ def error_message_details(error: Any, error_detail: Optional[object] = None) -> 
 
 
 class CustomException(Exception):
-    """
-    CustomException wraps an underlying error and produces a rich, single-line
-    diagnostic message.
-
-    Usage (recommended):
-        raise CustomException(e)
-
-    Legacy/backwards-compatible usage:
-        raise CustomException(e, error_detail=sys)
-
-    Implementation notes:
-      - We capture the formatted message at construction time so the exception
-        carries the same string you expect from previous code.
-      - We do not swallow the original exception; prefer raising with chaining:
-          raise CustomException(e) from e
-        This preserves the original traceback in logs while still giving the
-        concise error_message when str() is called on the exception instance.
-    """
-
     def __init__(self, error_message: Any, error_detail: Optional[object] = None):
         self.original = error_message
         msg = error_message_details(error_message, error_detail=error_detail)

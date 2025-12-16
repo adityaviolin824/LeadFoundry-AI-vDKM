@@ -216,18 +216,24 @@ def create_structuring_agent() -> Agent:
         mcp_servers=[],     # no MCP for normalizer
         tools=[],           # no external tools
         instructions="""
-You normalize messy company lead data into structured LeadList JSON.
+Normalize raw lead data into LeadList JSON.
 
 Rules:
-- Extract ALL companies visible in the input.
-- Only use explicit information. Never guess values.
-- Missing fields -> "unknown".
-- LinkedIn URLs count as website if no other website is present.
-- Include all URLs used as source_urls.
-- Output ONLY valid JSON matching the LeadList schema.
-- If output would be invalid JSON, fix it BEFORE responding.
+- Extract every distinct COMPANY explicitly present.
+- Ignore ads, UI labels, navigation text, or generic directories.
+- Extract email and phone aggressively, but ONLY if explicitly shown.
+- Never guess or infer values.
+- Missing values → "unknown".
+- If no website exists, LinkedIn URL may be used as website.
+- Collect all referenced links in source_urls.
+- One object per company.
 
-Schema (returned as LeadList):
+Output:
+- Return ONLY valid JSON.
+- Must match LeadList schema exactly.
+- No markdown, no text outside JSON.
+
+Schema:
 {
   "leads": [
     {
@@ -237,9 +243,11 @@ Schema (returned as LeadList):
       "phone_number": "...",
       "location": "...",
       "description": "...",
+      "source_urls": []
     }
   ]
 }
+
 """,
         output_type=AgentOutputSchema(
             LeadList,

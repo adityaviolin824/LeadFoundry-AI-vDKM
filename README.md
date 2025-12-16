@@ -1,152 +1,97 @@
-# LeadFoundry AI vDKM (Technical Summary)
+# LeadFoundry AI
 
-## Architecture Diagram
-![Architecture Diagram](templates/architecture_diagram.jpg)
+LeadFoundry AI automates lead research by searching LinkedIn, Facebook, company websites, and Google Maps to find business contact information that matches user-defined criteria. It runs multiple searches in parallel, structures results into a clean Excel deliverable, and optionally emails the output when the run completes.
 
----
+## Live Demo
 
-## 1. User Input → Query Generation
-User preferences are processed by an intake agent that produces **3 to 5 optimized search queries**.  
-These queries act as the root of all downstream lead discovery.
+* **API Backend**: Deployed on Google Cloud Run
+* **Frontend UI**: Deployed on Streamlit Cloud
+* **Architecture**: Decoupled deployment with a FastAPI backend handling orchestration and a Streamlit frontend for interactive submissions
 
-The intake stage:
-- Validates and normalizes user constraints
-- Generates search-intent-aligned queries
-- Persists inputs atomically per run
-- Remains fully deterministic and idempotent
+![Architecture Diagram](templates/architecture_diagram.png)
 
----
+## How It Works
 
-## 2. Lead Search Agents
-The system runs four research agents:
-- LinkedIn research agent  
-- Facebook research agent  
-- Company website research agent  
-- Google Maps or SERP API agent  
+### Query Generation
 
-Each agent:
-- Uses MCP search tools when available (DuckDuckGo MCP first, Tavily fallback)
-- Never uses unauthorized APIs/extraction tools
-- Runs inside its own isolated MCP session
-- Produces structured or semi-structured lead data for normalization
+Users provide search criteria such as industry, location, personas, and keywords. An intake agent converts these inputs into 3–5 optimized search queries designed to maximize coverage while avoiding duplicate result sets. Each run includes at least one contact-focused query to surface pages containing email or phone information.
 
-Agents operate independently, ensuring that failure in one source never blocks others.
+### Multi‑Agent Research
 
----
+Each query is distributed across four specialized agents running in parallel:
 
-## 3. Multi-run, async-first execution model
-LeadFoundry supports **multiple simultaneous research runs**, each identified by a unique **run ID**.
+* **LinkedIn Agent**: Retrieves company profiles and business pages
+* **Facebook Agent**: Locates business pages and public contact information
+* **Website Agent**: Inspects company websites and extracts data from `/contact`, `/about`, and footer sections
+* **Maps Agent**: Uses SERP API to extract business listings from Google Maps
 
-Each run is sandboxed inside:
-- its own run folder
-- its own configuration
-- its own cancellation token
-- its own progress files
-- its own run-specific MCP sessions
+Agents execute independently. Failures in one source do not block others, allowing the system to return partial but valid results when external services are unavailable.
 
-This allows high throughput without cross-contamination or shared-state bugs.
+### Structuring and Validation
 
----
+Raw outputs from all agents are passed through a structuring layer that enforces a strict JSON schema. Each lead is normalized into consistent fields (`company`, `website`, `email`, `phone_number`, `location`, `description`). Missing values are explicitly set to `"unknown"`, and malformed responses are rejected.
 
-### 3.1 Strong async architecture
-The API is built around a strict async-first design:
-- `asyncio.Task` for non-blocking pipeline stages
-- async semaphores to cap concurrent execution
-- `asyncio.to_thread` for CPU-bound or blocking I/O
-- thread-safe `threading.Event` for cancellation compatibility
-- per-stage progress files written using atomic I/O
-- async locks guarding all shared registries
+### Deduplication and Sorting
 
-This produces predictable execution even under load.
+Deduplication is handled deterministically in Python using company name and website as primary keys. Leads are ranked by contact completeness, prioritizing entries that contain both email and phone information.
 
----
+### Enrichment
 
-### 3.2 Safe isolated run directories
-Each run creates the following structure:
+After initial consolidation, an enrichment step revisits leads with missing contact data. This stage fetches publicly accessible website pages such as contact pages, about pages, and footers to recover email addresses or phone numbers missed during the primary search. Enrichment is performed post‑research to avoid slowing down the core pipeline.
 
-/runs/<run_id>/
-├── .pipeline.lock
-├── inputs/
-└── outputs/
+## Usage Modes
 
+### With Email (Fire‑and‑Forget)
 
-This guarantees:
-- Parallel users do not collide
-- Partial failures are fully contained
-- Writes are never shared across runs
-- Old runs can be safely garbage-collected
+Designed for asynchronous use. Users submit a request, provide an email address, and close the browser. The pipeline runs in the background and sends the Excel output upon completion, even for long‑running executions.
 
----
+### Without Email (Interactive)
 
-## 4. MCP-enabled multi-source research
-For every optimized query:
+Users can monitor progress in real time through the UI, observe agent execution, preview intermediate results, and download the final output manually. This mode is primarily intended for testing and exploration.
 
-### 4.1 Search resolution
-Agents resolve data using:
-- DuckDuckGo Search MCP as primary
-- Tavily when MCP returns insufficient results
-- SERP API for Google Maps and place-level signals
+## Performance Considerations
 
-Search providers are dynamically selected with graceful fallback.
+Execution time and API cost depend on agent count, query breadth, and enrichment depth. The system minimizes LLM usage by relying on deterministic Python logic wherever possible:
 
----
+* Deduplication is algorithmic
+* Sorting and ranking are rule‑based
+* Enrichment is triggered only for missing fields
 
-### 4.2 Structuring and normalization
-A strict LLM-based structuring layer:
-- Converts raw agent output into a fixed LeadList schema
-- Fills missing fields with `"unknown"`
-- Validates emails, phone numbers, and URLs
-- Rejects malformed JSON and retries safely
-- Guarantees deterministic output shape
+This approach keeps runs cost‑efficient while preserving output quality.
 
-No downstream stage ever consumes unvalidated data.
+## Output Format
 
----
+All leads conform to a fixed schema:
 
-### 4.3 Full error isolation and strong exception handling
-The research layer is designed for safe degradation:
-- Individual agent failures do not stop the run
-- Exceptions are captured as structured error objects
-- Partial results are preserved
-- Async task boundaries prevent cascading failures
-- The pipeline proceeds unless explicitly cancelled
+* company
+* website
+* email
+* phone_number
+* location
+* description
+* source
+* source_urls
 
-The goal is stability, not forced success.
+Results are delivered as `final_leads_list.xlsx`, containing deduplicated, enriched, and ranked leads ready for outreach.
 
----
+## Technology Stack
 
-## 5. Consolidation and raw storage
-After all queries complete:
-- Leads are appended into a consolidated JSON file
-- Deduplication is intentionally deferred
-- Atomic writes guarantee crash-safe persistence
-- Backups prevent accidental overwrite
-- Invalid writes never corrupt existing data
+* Python 3.12+
+* FastAPI
+* asyncio for parallel execution
+* MCP (Model Context Protocol)
+* DuckDuckGo Search MCP
+* Tavily API
+* SERP API
+* Configurable LLM providers
+* Docker
+* Google Cloud Run
+* Streamlit
 
-Raw data is preserved exactly as produced.
+## Deployment
 
----
+The backend API is deployed on Google Cloud Run with request‑driven autoscaling. The frontend UI is deployed separately on Streamlit Cloud. Both services are fully containerized and stateless, with each pipeline run assigned its own isolated directory for progress tracking and outputs.
 
-## 6. Downstream processing and delivery
-A dedicated downstream stage performs:
-- deduplication
-- contact completeness scoring
-- ranking
-- Excel export
+## Legal and Data Use
 
-This stage can be triggered:
-- manually via API
-- automatically when email delivery is enabled
-
-When an email is provided:
-- research → finalize → email delivery happens automatically
-- Excel is attached if available
-- graceful fallback sends HTML-only email if Excel generation fails
-- delivery status is persisted per run
-
-The research layer remains purely data-focused.
-
----
-
-## One sentence summary
-Async-first, multi-run lead research system with run-level isolation, MCP-powered agents, strict LLM structuring, atomic persistence, automatic email delivery, and robust failure containment that guarantees safe partial completion under real-world conditions.
+The system uses official APIs and respects provider rate limits and usage policies. Only publicly available business contact information is processed.

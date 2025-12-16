@@ -22,9 +22,6 @@ def _ensure_dir_for_path(path: str) -> None:
         os.makedirs(dirpath, exist_ok=True)
 
 
-# ================================
-# Runner (WITH logging + CustomException)
-# ================================
 async def run_user_intake_pipeline(
     user_input: Dict,
     output_path: str = "outputs/suggested_queries.json"
@@ -38,18 +35,13 @@ async def run_user_intake_pipeline(
         with trace("lead_query_generator"):
             logger.info("Sending user JSON to model...")
             input_message = json.dumps(user_input, indent=2)
-
-            # result is a RunResult object
             result = await Runner.run(agent, [{"role": "user", "content": input_message}])
 
         logger.info("Model returned response successfully.")
-
-        # Show raw output in logs
         logger.debug("RAW MODEL OUTPUT:\n%s", result)
 
         _ensure_dir_for_path(output_path)
 
-        # Extract actual data from result wrapper
         actual_model = result.final_output
 
         if hasattr(actual_model, "model_dump"):
@@ -59,7 +51,6 @@ async def run_user_intake_pipeline(
         else:
             data_to_save = actual_model
 
-        # Save output
         with open(output_path, "w", encoding="utf-8") as f:
             json.dump(data_to_save, f, indent=2, ensure_ascii=False)
 
@@ -68,7 +59,6 @@ async def run_user_intake_pipeline(
     except Exception as exc:
         logger.exception("Error occurred in user intake pipeline: %s", exc)
 
-        # Save error details to output JSON
         err_payload: Dict[str, Any] = {
             "error_type": type(exc).__name__,
             "error_message": str(exc),
@@ -82,5 +72,4 @@ async def run_user_intake_pipeline(
 
         logger.error("Error details written to %s", output_path)
 
-        # Raise a structured exception upward
         raise CustomException(f"User intake pipeline failed: {exc}") from exc

@@ -22,7 +22,7 @@ load_dotenv(override=True)
 
 
 # ======================================
-# MCP SERVER HELPERS (unchanged) -> gives a simple nice list of mcp servers that we can directly pass into the agent {check tutorial for reference}
+# MCP SERVER HELPERS (unchanged) -> gives a simple nice list of mcp servers that we can directly pass into the agent
 # ======================================
 
 def researcher_mcp_stdio_servers(
@@ -30,7 +30,6 @@ def researcher_mcp_stdio_servers(
 ) -> List[MCPServerStdio]:
     servers: List[MCPServerStdio] = []
 
-    # ✅ Fetch MCP (Python, robust)
     servers.append(
         MCPServerStdio(
             name="fetch_mcp",
@@ -42,7 +41,6 @@ def researcher_mcp_stdio_servers(
         )
     )
 
-    # ✅ DuckDuckGo MCP (already working)
     servers.append(
         MCPServerStdio(
             name="ddg_mcp",
@@ -59,10 +57,10 @@ def researcher_mcp_stdio_servers(
 
 
 # ======================================================================
-# TAVILY SEARCH TOOL (Function Tool)
+# TAVILY SEARCH TOOL
 # ======================================================================
 
-TAVILY_MAX_RESULTS = 20
+TAVILY_MAX_RESULTS = 25
 
 @function_tool
 def tavily_search(

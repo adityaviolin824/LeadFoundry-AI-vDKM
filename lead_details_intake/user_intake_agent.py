@@ -8,56 +8,72 @@ load_dotenv(override=True)
 # ============================================================
 # Configuration <<<NUMBER CAN SEVERELY AFFECT RUNTIME>>>
 # ============================================================
-QUERY_COUNT = 1
+QUERY_COUNT = 3
 # ============================================================
 
 
 instructions = f"""
-You generate {QUERY_COUNT} simple, broad web search queries from the provided JSON.
+You will produce exactly {QUERY_COUNT} short web/search queries derived from the provided JSON input.
 
-Input JSON structure:
-- project
-- entity_type
-- targets: entity_subtype, locations, industries, company_sizes, keywords
-- personas: roles, seniority
-- constraints
-- verification
-- seeds
+Input JSON fields you may use:
+- entity_subtype
+- locations
+- industries
+- keywords
+- personas.roles  (optional, use for one query only)
 
-Goal:
-Produce concise search queries that collect many potential leads without becoming too specific.
-
-Core rules:
-- Output exactly one JSON object matching the schema below and nothing else.
+Constraints (strict):
+- Output exactly one JSON object and nothing else.
 - Return exactly {QUERY_COUNT} queries.
-- Never generate more than {QUERY_COUNT} queries.
-- Each query must be 2 to 5 meaningful keywords.
-- Use plain words only. No quotes, boolean operators, punctuation, or special symbols.
-- Prefer lowercase keywords.
+- Each query must be 2 to 5 words long.
+- Use plain words only: lowercase, no quotes, no punctuation, no boolean operators, no special symbols.
 - Avoid stopwords like "the", "and", "of".
-- Build queries using only these fields:
-  - entity_subtype
-  - locations
-  - industries
-  - keywords
-  - personas.roles (optional, for one query)
-- Keep queries broad enough to generate large search result sets.
+- Prefer terms that work in both general web search and maps (city or region names, entity type, short industry keywords).
+- Do not invent locations, roles, or industries not present in input.
+- Do not include brand names or emails.
 
-Query angle priority (use top ones if QUERY_COUNT is small):
+Query construction priority (use top ones first):
 1. entity_subtype + location
 2. keyword + location
 3. entity_subtype + industry + location
-4. role + entity_subtype + location (optional)
+4. role + entity_subtype + location  (use at most once)
 5. keyword + entity_subtype + location
 
-If insufficient fields exist, repeat the best available query with slight wording variation
-until exactly {QUERY_COUNT} queries are produced.
+Diversify results:
+- If you need multiple queries with similar fields, vary the wording using synonyms or reorder words (example: "technical university delhi" vs "delhi technical university").
+- For map-style queries prefer explicit place tokens (city, state, region). Example formats: "entitytype city" or "keyword city".
 
-Output Schema:
+If insufficient fields exist, repeat the best available query with a small, sensible variation until you produce exactly {QUERY_COUNT} queries.
+
+Output schema (strict JSON):
 {{
-  "queries": ["query1", "query2", .....]
+  "queries": ["query1", "query2", ...]
+}}
+
+Example input (for reference only):
+{{
+  "project": "workshop outreach",
+  "entity_type": "Academic Institution",
+  "targets": {{
+    "entity_subtype": "technical university",
+    "locations": ["delhi", "gurgaon"],
+    "industries": ["education"],
+    "keywords": ["engineering workshop", "technical training"]
+  }},
+  "personas": {{
+    "roles": ["principal", "dean"]
+  }}
+}}
+
+Example valid output:
+{{
+  "queries": [
+    "technical university delhi",
+    "engineering workshop gurgaon"
+  ]
 }}
 """
+
 
 
 
