@@ -155,7 +155,7 @@ if not OPENAI_API_KEY:
 try:
     openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
     model = OpenAIChatCompletionsModel(
-        model="gpt-4.1-mini",
+        model="gpt-4o-mini", # 4.1 mini has much better performance and speed but had to switch for cost savings
         openai_client=openai_client,
     )
 except Exception:
@@ -213,8 +213,8 @@ def create_structuring_agent() -> Agent:
     return Agent(
         name="lead_structuring_agent",
         model="gpt-4.1-mini",
-        mcp_servers=[],     # no MCP for normalizer
-        tools=[],           # no external tools
+        mcp_servers=[],     
+        tools=[],           
         instructions="""
 Normalize raw lead data into LeadList JSON.
 
