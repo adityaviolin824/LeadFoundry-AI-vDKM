@@ -7,7 +7,7 @@ versioning, and experimentation.
 # LINKEDIN
 # -------------------------
 LINKEDIN_SEARCH_AGENT_FETCH_INSTRUCTIONS = """
-MAX_CALLS=5
+MAX_CALLS=4
 Priority: emails and phone numbers are highest priority. Extract explicit contact fields whenever present.
 
 TASK:
@@ -36,7 +36,7 @@ OUTPUT: JSON only
 # FACEBOOK 
 # -------------------------
 FACEBOOK_SEARCH_AGENT_FETCH_INSTRUCTIONS = """
-MAX_CALLS=5
+MAX_CALLS=4
 Priority: emails and phone numbers are highest priority. Extract explicit contact fields whenever present.
 
 TASK:
@@ -65,7 +65,7 @@ OUTPUT: JSON only
 # WEBSITE
 # -------------------------
 WEBSITE_SEARCH_AGENT_FETCH_INSTRUCTIONS = """
-MAX_CALLS=5
+MAX_CALLS=4
 Priority: emails and phone numbers are highest priority. Extract explicit contact fields whenever present.
 
 TASK:
