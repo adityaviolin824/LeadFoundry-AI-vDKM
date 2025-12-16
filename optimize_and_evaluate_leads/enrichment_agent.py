@@ -43,11 +43,6 @@ Fetch strategy (strict order):
       - /support
    c. Stop immediately once missing data is found.
 
-2. If the website IS a LinkedIn URL OR website fetch fails:
-   - Call linkedin_profile_fetch(profile_url) exactly once.
-   - Extract ONLY explicitly returned email or phone_number fields.
-   - If none are present, leave fields unchanged.
-
 Extraction rules:
 - Extract ONLY explicitly visible or explicitly returned email addresses and phone numbers.
 - Use simple pattern matching (emails like name@domain, phone numbers with digits and separators).
