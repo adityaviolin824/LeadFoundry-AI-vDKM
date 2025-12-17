@@ -25,7 +25,7 @@ Input JSON fields you may use:
 Constraints (strict):
 - Output exactly one JSON object and nothing else.
 - Return exactly {QUERY_COUNT} queries.
-- Each query must be 2 to 5 words long.
+- Each query must be 2 to 7 words long.
 - Use plain words only: lowercase, no quotes, no punctuation, no boolean operators, no special symbols.
 - Avoid stopwords like "the", "and", "of".
 - Prefer terms that work in both general web search and maps (city or region names, entity type, short industry keywords).

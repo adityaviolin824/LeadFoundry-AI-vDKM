@@ -1,10 +1,9 @@
 import json
 import asyncio
 from pathlib import Path
-from agents import Runner, trace
-from optimize_and_evaluate_leads.enrichment_agent import create_enrichment_agent
-from contextlib import AsyncExitStack
+from optimize_and_evaluate_leads.enrichment_agent import enrich_leads_async, Lead
 from utils.logger import logging
+
 logger = logging.getLogger(__name__)
 
 
@@ -21,32 +20,40 @@ async def run_lead_enrichment(
     with input_path.open("r", encoding="utf-8") as f:
         input_data = json.load(f)
 
-    agent = create_enrichment_agent()
+    # Convert to Lead objects
+    leads = [Lead(**lead_dict) for lead_dict in input_data.get("leads", [])]
+    
+    if not leads:
+        logger.warning("No leads to enrich")
+        return
 
-    async with AsyncExitStack() as stack:
-        if agent.mcp_servers:
-            for server in agent.mcp_servers:
-                await stack.enter_async_context(server)
+    logger.info(f"Starting enrichment for {len(leads)} leads with batching...")
 
-        with trace("lead_enrichment_agent"):
-            logger.info("Sending leads JSON to enrichment model...")
-            input_message = json.dumps(input_data, indent=2)
+    # Call async batching function
+    enriched_leads = await enrich_leads_async(leads)
 
-            result = await Runner.run(
-                agent,
-                [{"role": "user", "content": input_message}],
-            )
+    # Convert back to dict format
+    enriched_output = {
+        "leads": [lead.model_dump() for lead in enriched_leads]
+    }
 
-        enriched_output = result.final_output
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-
-        with output_path.open("w", encoding="utf-8") as f:
-            json.dump(
-                enriched_output.model_dump(),
-                f,
-                indent=2,
-                ensure_ascii=False,
-            )
+    # Save enriched output
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with output_path.open("w", encoding="utf-8") as f:
+        json.dump(
+            enriched_output,
+            f,
+            indent=2,
+            ensure_ascii=False,
+        )
 
     logger.info(f"############## Enriched output saved to {output_path} ##################")
 
+
+if __name__ == "__main__":
+    asyncio.run(
+        run_lead_enrichment(
+            r"runs/run_20251217T125743_7bac9128/outputs/lead_list_deduped.json",
+            r"runs/run_20251217T125743_7bac9128/outputs/lead_list_ENRICHED.json"
+        )
+    )
