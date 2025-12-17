@@ -3,7 +3,7 @@ import requests
 import time
 from pathlib import Path
 from templates.spinner import render_spinning_status
-from templates.style import LF_STYLE
+from templates.style import apply_lf_styles
 import pandas as pd
 from io import BytesIO
 
@@ -30,7 +30,7 @@ def get_phase_timeout(phase, status):
 
 st.set_page_config(page_title="LeadFoundry AI", page_icon="🧲", layout="wide")
 
-st.markdown(f"<style>{LF_STYLE}</style>", unsafe_allow_html=True)
+apply_lf_styles()
 
 
 def init():
