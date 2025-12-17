@@ -1,10 +1,9 @@
 from pydantic import BaseModel, model_validator
-from typing import List, Optional, Tuple
-from agents import Agent, AgentOutputSchema, Runner, trace
+from typing import List, Optional
+from agents import Agent, AgentOutputSchema
 from multiple_source_lead_search.research_tools import researcher_mcp_stdio_servers
+# from optimize_and_evaluate_leads.enrichment_tools import linkedin_profile_fetch # discontinued tool (kept for future ideas)
 from dotenv import load_dotenv
-from contextlib import AsyncExitStack
-import json
 
 load_dotenv(override=True)
 
@@ -14,41 +13,65 @@ load_dotenv(override=True)
 # =========================
 
 ENRICHMENT_AGENT_INSTRUCTIONS = """
-You are a lead enrichment agent. Fill missing contact details with maximum precision.
+You are a lead enrichment agent.
 
-INPUT: JSON with "leads" array of lead objects
-OUTPUT: Same JSON structure with enriched mail and phone_number fields only
+Input:
+- JSON with key "leads": a list of lead objects.
 
-STRICT RULES:
-- Only enrich if mail or phone_number is "unknown"
-- NEVER guess, infer, or fabricate data
-- Do NOT modify company, website, location, or description
-- Skip ALL linkedin.com and facebook.com URLs entirely
-- Use fetch(url) to retrieve page content only - NEVER search
+Goal:
+Fill missing contact details with maximum precision and minimum actions.
 
-FETCH STRATEGY (per lead):
-1. Fetch the main website URL first
-2. Extract email and phone from page content
-3. If email OR phone found → STOP, move to next lead
-4. If both still missing → try {domain}/contact
-5. STOP after 2 fetches per lead maximum
+Strict rules:
+- If mail or phone_number is "unknown", attempt enrichment.
+- NEVER guess, infer, or fabricate data.
+- Modify ONLY mail and phone_number.
+- Do NOT add, remove, or rename any fields.
+- Skip ALL LinkedIn URLs entirely (do not fetch linkedin.com links).
 
-EXTRACTION:
-- Extract ONLY explicitly visible contact info from fetched HTML
-- Look for emails (name@domain.com) and phones (digits + separators)
-- Check main content and footer sections
-- If multiple values found, join with comma
-- If nothing found after 2 fetches, leave as "unknown"
+Primary method:
+- Use fetch(url) to retrieve page content.
+- NEVER perform search of any kind.
 
-FETCH LIMITS:
-- Each URL fetched only ONCE per lead
-- Failed fetches (errors, timeouts) still count toward limit
-- Never retry failed URLs
+Robots handling:
+- robots.txt is a pre-flight permission check.
+- Attempt to fetch robots.txt at most ONCE per lead.
+- robots.txt fetch does NOT count as a page fetch.
+- If robots.txt is unreachable or errors, IGNORE it and proceed normally.
+- If robots.txt is reachable and explicitly disallows crawling, SKIP enrichment for that lead.
 
-OUTPUT:
-- Return EXACTLY the input JSON structure
-- Only mail and phone_number may change
-- JSON only, no explanations or commentary
+Fetch strategy (strict order):
+1. If the website is NOT a LinkedIn URL:
+   a. Fetch the lead's website URL.
+   b. If an email OR phone_number is found, STOP immediately.
+   c. If missing data remains, try these HIGH-YIELD paths on the same domain (if valid):
+      - /contact
+      - /contact-us
+   d. Only if still missing, try LOW-YIELD paths (optional):
+      - /about
+      - /about-us
+      - /footer
+      - /support
+   e. Stop immediately once missing data is found.
+
+Fetch limits:
+- Each unique URL may be fetched at most ONCE per lead.
+- A failed fetch (robots error, network error, parse error, or non-200 response) still counts as a fetch.
+- Never fetch the same URL more than once.
+
+Extraction rules:
+- Extract ONLY explicitly visible or explicitly returned email addresses and phone numbers.
+- Use simple pattern matching (emails like name@domain, phone numbers with digits and separators).
+- Prefer emails found in the main content or footer; ignore deeply repeated boilerplate text.
+- If multiple values are found, deduplicate and join with comma.
+- If no valid data is found, keep values as "unknown".
+
+Safety:
+- If all allowed methods fail, leave the lead unchanged.
+- Do NOT retry failed methods.
+
+Output:
+- Return EXACTLY the same JSON structure as input.
+- JSON only. No explanations.
 """
 
 
@@ -103,99 +126,3 @@ def create_enrichment_agent() -> Agent:
         ),
         mcp_servers=FETCH_ONLY_MCP_SERVERS,
     )
-
-
-# =========================
-# Helper Functions
-# =========================
-
-def preprocess_leads(leads: List[Lead]) -> Tuple[List[Lead], List[Lead], List[int]]:
-    """
-    Separate fetchable vs unfetchable leads.
-    
-    Returns:
-        fetchable: Leads with valid non-social-media websites
-        skipped: Leads with LinkedIn/Facebook/unknown websites
-        skip_indices: Original indices of skipped leads for order restoration
-    """
-    fetchable = []
-    skipped = []
-    skip_indices = []
-    
-    for idx, lead in enumerate(leads):
-        website = lead.website.lower() if lead.website else "unknown"
-        
-        if lead.website == "unknown":
-            skipped.append(lead)
-            skip_indices.append(idx)
-        elif "linkedin.com" in website or "facebook.com" in website:
-            skipped.append(lead)
-            skip_indices.append(idx)
-        else:
-            fetchable.append(lead)
-    
-    return fetchable, skipped, skip_indices
-
-
-async def enrich_leads_async(leads: List[Lead], batch_size: int = 10) -> List[Lead]:
-    """
-    Main async enrichment function with preprocessing and batching.
-    Uses Runner.run() with proper MCP server management.
-    
-    Input: List of Lead objects
-    Output: List of Lead objects (same order as input)
-    
-    Skipped leads (LinkedIn/Facebook/unknown) are returned unchanged.
-    """
-    if not leads:
-        return []
-    
-    # Separate fetchable from unfetchable leads
-    fetchable, skipped, skip_indices = preprocess_leads(leads)
-    
-    enriched_fetchable = []
-    
-    # Enrich fetchable leads in batches
-    if fetchable:
-        agent = create_enrichment_agent()
-        
-        async with AsyncExitStack() as stack:
-            # Initialize MCP servers once for all batches
-            if agent.mcp_servers:
-                for server in agent.mcp_servers:
-                    await stack.enter_async_context(server)
-            
-            # Process in batches with trace
-            with trace("lead_enrichment_batched"):
-                for i in range(0, len(fetchable), batch_size):
-                    batch = fetchable[i:i + batch_size]
-                    
-                    # Prepare input message
-                    input_data = {"leads": [lead.model_dump() for lead in batch]}
-                    input_message = json.dumps(input_data, indent=2)
-                    
-                    # Use Runner.run() with connected MCP servers
-                    result = await Runner.run(
-                        agent,
-                        [{"role": "user", "content": input_message}],
-                        max_turns=100
-                    )
-                    
-                    # Extract enriched leads from result
-                    enriched_fetchable.extend(result.final_output.leads)
-    
-    # Restore original order using index tracking
-    result = [None] * len(leads)
-    
-    # Place skipped leads back in their original positions
-    for idx, lead in zip(skip_indices, skipped):
-        result[idx] = lead
-    
-    # Place enriched leads in their original positions
-    enriched_idx = 0
-    for i in range(len(result)):
-        if result[i] is None:
-            result[i] = enriched_fetchable[enriched_idx]
-            enriched_idx += 1
-    
-    return result
