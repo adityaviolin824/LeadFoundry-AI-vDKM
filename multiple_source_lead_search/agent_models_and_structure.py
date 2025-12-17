@@ -155,7 +155,7 @@ if not OPENAI_API_KEY:
 try:
     openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
     model = OpenAIChatCompletionsModel(
-        model="gpt-4.1-nano", # 4.1 mini has much better performance and speed but had to switch for cost savings and speed boost
+        model="gpt-4o-mini", # 4.1 mini has much better performance and speed but had to switch for cost savings and speed boost
         openai_client=openai_client,
     )
 except Exception:
