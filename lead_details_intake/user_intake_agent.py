@@ -35,9 +35,8 @@ Constraints (strict):
 Query construction priority (use top ones first):
 1. entity_subtype + location
 2. keyword + location
-3. entity_subtype + industry + location
-4. role + entity_subtype + location  (use at most once)
-5. keyword + entity_subtype + location
+3. entity_subtype + location
+4. keyword + entity_subtype + location
 
 Diversify results:
 - If you need multiple queries with similar fields, vary the wording using synonyms or reorder words (example: "technical university delhi" vs "delhi technical university").

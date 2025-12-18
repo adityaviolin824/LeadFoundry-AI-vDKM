@@ -133,7 +133,7 @@ class LeadList(BaseModel):
 # ---------------------------------------------------------------------
 try:
     DEFAULT_MCP_SERVERS = researcher_mcp_stdio_servers(
-        client_session_timeout_seconds=90 ####
+        client_session_timeout_seconds=120 ####
     )
 except Exception:
     logger.exception("Failed to initialize MCP servers")
@@ -155,7 +155,7 @@ if not OPENAI_API_KEY:
 try:
     openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
     model = OpenAIChatCompletionsModel(
-        model="gpt-4.1-mini", # 4.1 mini has much better performance and speed but had to switch for cost savings and speed boost
+        model="gpt-5-nano", # 4.1 mini has much better performance and speed but had to switch for cost savings and speed boost
         openai_client=openai_client,
     )
 except Exception:
