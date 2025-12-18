@@ -35,7 +35,7 @@ async def run_lead_enrichment(
             result = await Runner.run(
                 agent,
                 [{"role": "user", "content": input_message}],
-                max_turns=100
+                max_turns=200
             )
 
         enriched_output = result.final_output
@@ -51,3 +51,18 @@ async def run_lead_enrichment(
 
     logger.info(f"############## Enriched output saved to {output_path} ##################")
 
+
+if __name__ == "__main__":
+    input_json = r"runs\run_20251217T213935_fc6407e8\consolidated_parts\consolidated_part_4.json"
+    output_json = r"runs\run_20251217T213935_fc6407e8\consolidated_parts\ENRICHED_JSON.json"
+
+    logger.info("Starting lead enrichment run...")
+
+    asyncio.run(
+        run_lead_enrichment(
+            input_json_path=input_json,
+            output_json_path=output_json,
+        )
+    )
+
+    logger.info("Lead enrichment run completed.")

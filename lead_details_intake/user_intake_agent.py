@@ -8,7 +8,7 @@ load_dotenv(override=True)
 # ============================================================
 # Configuration <<<NUMBER CAN SEVERELY AFFECT RUNTIME>>>
 # ============================================================
-QUERY_COUNT = 5
+QUERY_COUNT = 1
 # ============================================================
 
 
@@ -67,8 +67,8 @@ Example input (for reference only):
 Example valid output:
 {{
   "queries": [
-    "technical university delhi",
-    "engineering workshop gurgaon"
+    "engineering university delhi",
+    "techical workshop mumbai"
   ]
 }}
 """

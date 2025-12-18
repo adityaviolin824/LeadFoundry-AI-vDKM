@@ -27,3 +27,4 @@ streamlit
 streamlit-autorefresh
 google-search-results
 tavily
+beautifulsoup4>=4.12.2

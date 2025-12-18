@@ -33,6 +33,8 @@ dependencies = [
 
     "python-box>=7.2.0",
     "ensure>=1.0.0",
+    "beautifulsoup4>=4.12.2",
+    
 
 ]
 

@@ -3,6 +3,7 @@ from typing import List, Optional
 from agents import Agent, AgentOutputSchema
 from multiple_source_lead_search.research_tools import researcher_mcp_stdio_servers
 # from optimize_and_evaluate_leads.enrichment_tools import linkedin_profile_fetch # discontinued tool (kept for future ideas)
+from optimize_and_evaluate_leads.enrichment_tools import enrich_website_contacts
 from dotenv import load_dotenv
 
 load_dotenv(override=True)
@@ -13,43 +14,61 @@ load_dotenv(override=True)
 # =========================
 
 ENRICHMENT_AGENT_INSTRUCTIONS = """
-You are a lead enrichment agent. Fill missing contact details with maximum precision.
+You are a lead enrichment agent.
 
-INPUT:
-- JSON with key "leads": list of lead objects
+Goal:
+Fill missing contact details with high precision and low cost.
 
-OUTPUT:
-- Same JSON structure
-- Only "mail" and "phone_number" may be modified
+Input:
+- JSON object with key "leads" containing a list of lead objects
 
-STRICT RULES:
-- Only enrich if mail or phone_number is "unknown"
-- NEVER guess, infer, or fabricate data
-- Do NOT modify company, website, location, or description
-- Skip ALL linkedin.com and facebook.com URLs
-- Use fetch(url) to retrieve page content only
-- Do NOT perform search of any kind
+Output:
+- Return the exact same JSON structure
+- You may modify ONLY:
+  - mail
+  - phone_number
 
-FETCH POLICY:
-- Do NOT fetch robots.txt
-- Fetch only the actual page URLs
-- If a fetch fails (403, 401, 429, timeout, error), stop enrichment for that lead
-- Never retry failed URLs
+Rules:
+- Enrich only if mail or phone_number is "unknown"
+- Never guess, infer, or fabricate
+- Never modify company, website, location, description, or any other fields
+- Skip all linkedin.com and facebook.com URLs
+- Never perform search
+- Never retry failed steps
+- Never loop or branch
 
-FETCH STRATEGY (per lead):
-1. Fetch the main website URL
-2. If email OR phone is found → STOP
-3. If both are still missing → try {domain}/contact
-4. STOP after 2 fetches per lead maximum
+Primary method:
+- Use the tool enrich_website_contacts(url)
+- This is the default and preferred method
+- Call the tool at most once per lead
+- Do not request HTML or raw page content
 
-EXTRACTION:
-- Extract ONLY explicitly visible email addresses and phone numbers
-- Check main content and footer sections
-- If multiple values found, join with comma
-- If nothing found, leave fields as "unknown"
+Tool handling:
+- If the tool returns ok == true:
+  - Use only the returned emails and phones
+- If the tool returns ok == false:
+  - Stop enrichment for that lead immediately
 
-OUTPUT:
-- Return EXACTLY the input JSON
+Fetch MCP (emergency only):
+- Use fetch ONLY if the tool cannot be used
+- Fetch only the main website URL
+- At most one fetch per lead
+- Do not fetch subpages
+- If fetch fails for any reason, stop enrichment
+
+Extraction:
+- Extract only explicitly visible email addresses and phone numbers
+- If multiple values exist, join with a comma
+- If nothing valid is found, leave fields as "unknown"
+
+Stop immediately if:
+- Website is LinkedIn or Facebook
+- Tool fails
+- Fetch fails
+- Both mail and phone_number are already present
+
+Final output:
+- Return exactly the input JSON
 - JSON only, no explanations
 """
 
@@ -105,4 +124,5 @@ def create_enrichment_agent() -> Agent:
             strict_json_schema=True,
         ),
         mcp_servers=FETCH_ONLY_MCP_SERVERS,
+        tools=[enrich_website_contacts]
     )
