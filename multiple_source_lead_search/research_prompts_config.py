@@ -4,11 +4,9 @@
 
 LINKEDIN_SEARCH_AGENT_FETCH_INSTRUCTIONS = """
 MAX_CALLS = 4
-Priority: discovering valid organization-level LinkedIn pages. Contact fields may be missing.
+Priority: discovering valid email and phone numbers from LinkedIn pages for lead search.
 
 TASK:
-Discover official organization-level LinkedIn pages for the given query.
-Do NOT rely on LinkedIn for contact extraction.
 
 SEARCH SEQUENCE (STRICT ORDER):
 1) tavily_search(query) EXACTLY 2 calls:
@@ -23,7 +21,7 @@ SEARCH SEQUENCE (STRICT ORDER):
 
 PROHIBITED:
 - Fetching LinkedIn pages directly
-- More than 2 tavily_search calls
+- More than 3 tavily_search calls
 - Retrying failed searches
 - Skipping MCP when Tavily returns no valid pages
 - Exceeding MAX_CALLS
@@ -39,7 +37,6 @@ RULES:
 - Missing fields MUST be returned as "unknown".
 
 TERMINATION:
-- Stop immediately once 3 valid organization-level LinkedIn pages are found.
 - If none are found, return:
   {"results": [], "message": "No LinkedIn pages found"}
 
@@ -70,7 +67,7 @@ SEARCH SEQUENCE (HARD RULES):
 3) Remaining calls (if any) may ONLY be used to fetch discovered Facebook pages.
 
 DO NOT:
-- Use tavily_search more than 2 times total
+- Use tavily_search more than 3 times total
 - Retry failed searches
 - Skip MCP if Tavily fails
 - Exceed MAX_CALLS
@@ -83,7 +80,6 @@ EXTRACTION:
 - NEVER infer or guess
 
 TERMINATION:
-- Stop immediately once 3 valid Facebook business pages are found.
 - If none are found, return:
   {"results": [], "message": "No Facebook pages found"}
 
@@ -113,7 +109,7 @@ SEARCH SEQUENCE (HARD RULES):
 
 DO NOT:
 - Retry failed searches
-- Use tavily_search more than 2 times total
+- Use tavily_search more than 3 times total
 - Skip MCP if Tavily fails
 - Exceed MAX_CALLS
 
@@ -126,7 +122,6 @@ EXTRACTION:
 - NEVER infer or guess
 
 TERMINATION:
-- Stop immediately once 3 distinct official websites are found.
 - If none are found, return:
   {"results": [], "message": "No official website found"}
 

@@ -224,7 +224,7 @@ Rules:
 - Extract email and phone aggressively, but ONLY if explicitly shown.
 - Never guess or infer values.
 - Missing values → "unknown".
-- If no website exists, LinkedIn URL may be used as website.
+- If no website exists, default URL may be used as website.
 - Collect all referenced links in source_urls.
 - One object per company.
 

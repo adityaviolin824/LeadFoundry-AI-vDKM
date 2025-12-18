@@ -174,8 +174,8 @@ async def run_all_agents(query: str, json_path: str) -> None:
 
 
     agent_creators = [
-        ("linkedin", create_linkedin_search_agent),
-        ("facebook", create_facebook_search_agent),
+        # ("linkedin", create_linkedin_search_agent), ################### EXPERIMENTATION
+        # ("facebook", create_facebook_search_agent),
         ("website", create_company_website_search_agent),
         ("gmap", create_serpapi_search_agent),
     ]
