@@ -3,27 +3,25 @@
 # ============================================================
 
 LINKEDIN_SEARCH_AGENT_FETCH_INSTRUCTIONS = """
-MAX_CALLS = 4
+MAX_CALLS = 3
 Priority: discovering valid email and phone numbers from LinkedIn pages for lead search.
 
 TASK:
 
 SEARCH SEQUENCE (STRICT ORDER):
-1) tavily_search(query) EXACTLY 2 calls:
+1) tavily_search(query) EXACTLY 2-3 calls:
    - Call 1: "<query> LinkedIn company"
    - Call 2: "<query> site:linkedin.com/company"
 
-2) MCP DuckDuckGo search EXACTLY 1 call ONLY IF Tavily returned no valid organization-level LinkedIn pages:
-   - "<query> site:linkedin.com/company"
-
-3) Remaining calls (if any) may ONLY be used for additional discovery via search tools.
+2) Remaining calls (if any) may ONLY be used for additional discovery via search tools.
    - DO NOT fetch LinkedIn URLs directly.
 
 PROHIBITED:
 - Fetching LinkedIn pages directly
+- Using fetch MCP or DuckDuckGo in any form. DO NOT use fetch or DuckDuckGo.
 - More than 3 tavily_search calls
 - Retrying failed searches
-- Skipping MCP when Tavily returns no valid pages
+- Skipping required steps
 - Exceeding MAX_CALLS
 
 EXTRACTION:
@@ -46,13 +44,12 @@ OUTPUT:
 """
 
 
-
 # ============================================================
 # FACEBOOK SEARCH AGENT
 # ============================================================
 
 FACEBOOK_SEARCH_AGENT_FETCH_INSTRUCTIONS = """
-MAX_CALLS = 4
+MAX_CALLS = 3
 Priority: emails and phone numbers are highest priority.
 
 TASK:
@@ -62,14 +59,12 @@ SEARCH SEQUENCE (HARD RULES):
 1) tavily_search(query, max_results=25) EXACTLY 2 calls:
    - Call 1: "<query> Facebook page"
    - Call 2: "<query> Facebook business"
-2) Then use MCP DuckDuckGo search EXACTLY 1 call IF Tavily did not return valid Facebook business pages:
-   - "<query> site:facebook.com"
-3) Remaining calls (if any) may ONLY be used to fetch discovered Facebook pages.
+2) Remaining calls (if any) should not be used if satisfactory results are obtained.
 
 DO NOT:
 - Use tavily_search more than 3 times total
+- Use fetch MCP or DuckDuckGo. DO NOT use fetch or DuckDuckGo.
 - Retry failed searches
-- Skip MCP if Tavily fails
 - Exceed MAX_CALLS
 
 EXTRACTION:
@@ -93,7 +88,7 @@ OUTPUT: JSON only
 # ============================================================
 
 WEBSITE_SEARCH_AGENT_FETCH_INSTRUCTIONS = """
-MAX_CALLS = 4
+MAX_CALLS = 3
 Priority: emails and phone numbers are highest priority.
 
 TASK:
@@ -103,14 +98,12 @@ SEARCH SEQUENCE (HARD RULES):
 1) tavily_search(query) EXACTLY 2 calls:
    - Call 1: "<query> official website"
    - Call 2: "<query> company website"
-2) Then use MCP DuckDuckGo search EXACTLY 1 call IF Tavily did not return official websites:
-   - "<query> official website"
-3) Remaining calls (if any) may ONLY be used to fetch discovered official websites.
+2) Remaining calls (if any) should not be used if good results are already obtained.
 
 DO NOT:
-- Retry failed searches
 - Use tavily_search more than 3 times total
-- Skip MCP if Tavily fails
+- Use fetch MCP or DuckDuckGo. DO NOT use fetch or DuckDuckGo.
+- Retry failed searches
 - Exceed MAX_CALLS
 
 EXTRACTION:
@@ -135,14 +128,15 @@ OUTPUT: JSON only
 # ============================================================
 
 GMAP_SEARCH_AGENT_FETCH_INSTRUCTIONS = """
-MAX_CALLS = 4
+MAX_CALLS = 3
 Priority: emails and phone numbers are highest priority.
 
 TASK:
 - MAX_CALLS is a hard limit.
-- Call serpapi_lead_search(business_type, location) EXACTLY up to MAX_CALLS times.
+- Call serpapi_lead_search(business_type, location) UP TO MAX_CALLS times.
 - Vary business_type slightly between calls.
 - One call MUST include tokens: "contact phone email".
+- Do NOT use fetch MCP or DuckDuckGo. DO NOT use fetch or DuckDuckGo.
 - Do NOT artificially limit or post-filter tool results.
 
 EXTRACTION:
