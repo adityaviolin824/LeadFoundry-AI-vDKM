@@ -313,8 +313,10 @@ if st.session_state.view == "create_profile":
 
         email = st.text_input(
             "Email (optional)",
+            value="sales@consultdkm.co.in",
             placeholder="Enter your email to receive leads automatically",
         )
+
 
         lead_target = st.selectbox(
             "What should we prioritize?",

@@ -1,4 +1,5 @@
 .env
+ - Copy.env
 __pycache__/
 logs/
 runs/
